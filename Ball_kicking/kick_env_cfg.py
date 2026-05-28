@@ -92,7 +92,7 @@ class H1KickRewards(RewardsCfg):
     # ── Kick-specific rewards (from kick_rewards.py) ──
     move_towards_ball = RewTerm(
         func=kick_mdp.move_towards_ball,
-        weight=0.5,
+        weight=0.2,  # Tried with 0.5 previously
         params={
             "robot_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
             "ball_cfg": SceneEntityCfg("football"),
@@ -100,7 +100,7 @@ class H1KickRewards(RewardsCfg):
     )
     ball_feet_contact = RewTerm(
         func=kick_mdp.ball_feet_contact,
-        weight=2.0,
+        weight=0.3,  # Tried with 2 previously
         params={
             "sensor_cfg": SceneEntityCfg(
                 "foot_ball_contact_sensor", body_names=".*ankle_link"
@@ -109,7 +109,7 @@ class H1KickRewards(RewardsCfg):
     )
     ball_upward_velocity = RewTerm(
         func=kick_mdp.ball_upward_velocity,
-        weight=3.0,
+        weight=15.0,  # tried with 3 previously
         params={
             "ball_cfg": SceneEntityCfg("football"),
         },
