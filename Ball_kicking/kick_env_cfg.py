@@ -9,8 +9,8 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-import isaaclab_tasks.manager_based.locomotion.velocity.mdp.h1.kick_rewards as kick_mdp
-import isaaclab_tasks.manager_based.locomotion.velocity.mdp.h1.kick_curriculums as kick_curriculums  # Make sure to import the file containing init_contact_buffer
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp.kick_rewards as kick_mdp
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp.kick_curriculums as kick_curriculums  # Make sure to import the file containing init_contact_buffer
 
 from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.flat_env_cfg import (
     H1FlatEnvCfg,
@@ -124,6 +124,24 @@ class H1KickRewards(RewardsCfg):
         weight=-5.0,
         params={"sensor_cfg": SceneEntityCfg("foot_ball_contact_sensor")},
     )
+    foot_tracking = RewTerm(
+        func=kick_mdp.foot_tracking_reward,
+        weight=1.5, 
+        params={
+            "robot_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"), 
+            "ball_cfg": SceneEntityCfg("football")
+        },
+    )
+    ball_height_air_time = RewTerm(
+        func=kick_mdp.ball_height_reward,
+        weight=2.0, 
+        params={"ball_cfg": SceneEntityCfg("football")},
+    )
+    foot_ball_contact = RewTerm(
+        func=kick_mdp.foot_ball_contact_reward,
+        weight=5.0, 
+        params={"sensor_cfg": SceneEntityCfg("foot_ball_contact_sensor")},
+    )
 
 
 @configclass
@@ -133,6 +151,9 @@ class H1KickEnvCfg(H1FlatEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
+        self.terminations.illegal_contact = None
+        self.terminations.bad_orientation = None
+        
         # ── Robot ──
         self.scene.robot = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
@@ -160,7 +181,7 @@ class H1KickEnvCfg(H1FlatEnvCfg):
                 activate_contact_sensors=True,
             ),
             # Initial state dropped from 1.0m height
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 1.0)),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.3, -0.15, 0.4)),
         )
 
         curriculum: CurriculumCfg = CurriculumCfg()
@@ -194,6 +215,11 @@ class H1KickEnvCfg(H1FlatEnvCfg):
             func=kick_events.init_contact_buffer,
             mode="startup",
         )
+        
+        self.events.reset_contact_buffer = EventTerm(
+            func=kick_events.init_contact_buffer,
+            mode="reset",
+        )
 
         self.events.reset_ball = EventTerm(
             func=kick_events.reset_ball_curriculum,
@@ -207,7 +233,7 @@ class H1KickEnvCfg(H1FlatEnvCfg):
         self.events.push_robot = None
         self.events.add_base_mass = None
         self.events.base_com = None
-        self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
+        self.events.reset_robot_joints.params["position_range"] = (0.0, 0.0)
         self.events.base_external_force_torque.params["asset_cfg"].body_names = [
             ".*torso_link"
         ]

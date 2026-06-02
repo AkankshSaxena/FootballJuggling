@@ -29,26 +29,33 @@ def reset_ball_curriculum(
     """Resets the ball using the dynamic drop radius from the curriculum."""
     asset: RigidObject = env.scene[asset_cfg.name]
 
-    # Clone the initial state (which contains your Z=1.0 drop height and X=0.5 default)
+    # Get the base default state (which is currently local)
     root_states = asset.data.default_root_state[env_ids].clone()
+    
+    # --- FIX: Get the world-frame origins of the specific environments ---
+    env_origins = env.scene.env_origins[env_ids]
+    
+    # --- FIX: Shift the local coordinates to global world coordinates ---
+    root_states[:, 0] += env_origins[:, 0]
+    root_states[:, 1] += env_origins[:, 1]
+    root_states[:, 2] += env_origins[:, 2]
 
-    # Read the current curriculum radius for these specific envs (default to 0 if not set)
+    # Read the current curriculum radius
     if hasattr(env, "ball_radius"):
         radii = env.ball_radius[env_ids]
     else:
         radii = torch.zeros(len(env_ids), dtype=torch.float32, device=env.device)
 
     # Generate random (X, Y) offsets within the current radius
-    # (torch.rand gives [0, 1) -> scaled to [-radius, radius])
     dx = (torch.rand_like(radii) * 2.0 - 1.0) * radii
     dy = (torch.rand_like(radii) * 2.0 - 1.0) * radii
 
-    # Apply offsets to position
+    # Apply curriculum offsets
     root_states[:, 0] += dx
     root_states[:, 1] += dy
 
-    # Zero out velocities (columns 7 to 13 are lin_vel and ang_vel)
+    # Zero out velocities (columns 7 to 13)
     root_states[:, 7:] = 0.0
 
-    # Write the new states directly to the physics engine
+    # Write the globally-shifted states directly to the physics engine
     asset.write_root_state_to_sim(root_states, env_ids)

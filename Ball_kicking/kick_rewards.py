@@ -121,3 +121,47 @@ def alternate_foot_penalty(
         env, "juggling_stage", torch.ones(env.num_envs, device=env.device)
     )
     return penalty * (current_stage == 3).float()
+
+def foot_tracking_reward(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+) -> torch.Tensor:
+    """Reward the robot for moving its feet closer to the ball."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    ball: RigidObject = env.scene[ball_cfg.name]
+    
+    foot_positions = robot.data.body_pos_w[:, robot_cfg.body_ids, :] 
+    ball_position = ball.data.root_pos_w.unsqueeze(1) 
+    
+    distances = torch.norm(foot_positions - ball_position, dim=-1)
+    min_distance = torch.min(distances, dim=1)[0]
+    
+    return torch.exp(-2.0 * min_distance)
+
+
+def ball_height_reward(
+    env: ManagerBasedRLEnv,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+) -> torch.Tensor:
+    """Reward for keeping the ball elevated: max(0, ball_z - floor_z)."""
+    ball: RigidObject = env.scene[ball_cfg.name]
+    ball_z = ball.data.root_pos_w[:, 2]
+    
+    return torch.clamp(ball_z, min=0.0)
+
+
+def foot_ball_contact_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Discrete reward (1 or 0) for the foot making contact with the ball."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    
+    # Extract the net forces applied to the foot bodies
+    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
+    
+    # Check if the maximum force vector length exceeds a small noise threshold
+    has_contact = forces.norm(dim=-1).max(dim=1)[0] > 0.1
+    
+    return has_contact.float()
