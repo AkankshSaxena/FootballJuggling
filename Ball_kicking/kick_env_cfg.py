@@ -1,38 +1,42 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers.
-# SPDX-License-Identifier: BSD-3-Clause
-
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-
-# ← import your custom reward functions separately
-import isaaclab_tasks.manager_based.locomotion.velocity.config.h1.kick_rewards as kick_mdp
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp.h1.kick_rewards as kick_mdp
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp.h1.kick_curriculums as kick_curriculums  # Make sure to import the file containing init_contact_buffer
 
 from isaaclab_tasks.manager_based.locomotion.velocity.config.h1.flat_env_cfg import (
     H1FlatEnvCfg,
 )
 from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import RewardsCfg
-
 from isaaclab_assets import H1_MINIMAL_CFG  # isort: skip
 
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp.kick_events as kick_events
 
-# ─────────────────────────────────────────────
-# REWARDS
-# ─────────────────────────────────────────────
+
+@configclass
+class CurriculumCfg:
+    advance_stage = CurrTerm(
+        func=kick_curriculums.juggling_stage_curriculum,
+        # Evaluated on reset automatically
+    )
+
+
 @configclass
 class H1KickRewards(RewardsCfg):
-    """Reward terms for the kicking MDP."""
+    """Reward terms for the juggling MDP."""
 
     # ── Keep from locomotion baseline ──
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
-    lin_vel_z_l2 = None  # disable
+    lin_vel_z_l2 = None
     track_lin_vel_xy_exp = RewTerm(
         func=mdp.track_lin_vel_xy_yaw_frame_exp,
         weight=1.0,
@@ -89,38 +93,41 @@ class H1KickRewards(RewardsCfg):
         params={"asset_cfg": SceneEntityCfg("robot", joint_names="torso")},
     )
 
-    # ── Kick-specific rewards (from kick_rewards.py) ──
-    move_towards_ball = RewTerm(
-        func=kick_mdp.move_towards_ball,
-        weight=0.2,  # Tried with 0.5 previously
-        params={
-            "robot_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
-            "ball_cfg": SceneEntityCfg("football"),
-        },
+    # ── Juggling-specific rewards ──
+    juggle_impulse = RewTerm(
+        func=kick_mdp.juggle_impulse_gaussian,
+        weight=1.0,
+        params={"sensor_cfg": SceneEntityCfg("foot_ball_contact_sensor"), "std": 2.0},
     )
-    ball_feet_contact = RewTerm(
-        func=kick_mdp.ball_feet_contact,
-        weight=0.3,  # Tried with 2 previously
-        params={
-            "sensor_cfg": SceneEntityCfg(
-                "foot_ball_contact_sensor", body_names=".*ankle_link"
-            ),
-        },
+    apex_height = RewTerm(
+        func=kick_mdp.apex_height_band,
+        weight=2.0,
+        params={"ball_cfg": SceneEntityCfg("football")},
     )
-    ball_upward_velocity = RewTerm(
-        func=kick_mdp.ball_upward_velocity,
-        weight=15.0,  # tried with 3 previously
-        params={
-            "ball_cfg": SceneEntityCfg("football"),
-        },
+    root_vel_penalty = RewTerm(
+        func=kick_mdp.root_velocity_penalty,
+        weight=-0.5,
+        params={"robot_cfg": SceneEntityCfg("robot")},
+    )
+    ball_drop_penalty = RewTerm(
+        func=kick_mdp.floor_is_lava,
+        weight=-100.0,
+        params={"ball_cfg": SceneEntityCfg("football")},
+    )
+    hand_contact = RewTerm(
+        func=kick_mdp.hand_contact_penalty,
+        weight=-10.0,
+        params={"sensor_cfg": SceneEntityCfg("hand_ball_contact_sensor")},
+    )
+    alternate_foot = RewTerm(
+        func=kick_mdp.alternate_foot_penalty,
+        weight=-5.0,
+        params={"sensor_cfg": SceneEntityCfg("foot_ball_contact_sensor")},
     )
 
 
-# ─────────────────────────────────────────────
-# MAIN ENV CONFIG
-# ─────────────────────────────────────────────
 @configclass
-class H1KickEnvCfg(H1FlatEnvCfg):  # ← flat, not rough base
+class H1KickEnvCfg(H1FlatEnvCfg):
     rewards: H1KickRewards = H1KickRewards()
 
     def __post_init__(self):
@@ -138,47 +145,60 @@ class H1KickEnvCfg(H1FlatEnvCfg):  # ← flat, not rough base
                     solver_position_iteration_count=4,
                     solver_velocity_iteration_count=0,
                 ),
-                mass_props=sim_utils.MassPropertiesCfg(mass=0.43),
+                mass_props=sim_utils.MassPropertiesCfg(
+                    mass=0.45
+                ),  # Updated mass to 0.45kg
                 collision_props=sim_utils.CollisionPropertiesCfg(),
                 physics_material=sim_utils.RigidBodyMaterialCfg(
                     static_friction=0.5,
                     dynamic_friction=0.5,
-                    restitution=0.7,  # ball bounce
+                    restitution=0.7,
                 ),
                 visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_color=(1.0, 0.5, 0.0)  # orange
+                    diffuse_color=(1.0, 0.5, 0.0)
                 ),
-                activate_contact_sensors=True,  # CRITICAL — enables contact reporting
+                activate_contact_sensors=True,
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 0.11)),
+            # Initial state dropped from 1.0m height
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 1.0)),
         )
 
-        # ── Contact sensor: foot vs ball ──
-        # Separate from existing contact_forces (which is foot vs ground)
+        curriculum: CurriculumCfg = CurriculumCfg()
+
+        # ── Contact sensors ──
         self.scene.foot_ball_contact_sensor = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/.*ankle_link",
             filter_prim_paths_expr=["{ENV_REGEX_NS}/Football"],
             track_air_time=False,
         )
 
-        # ── Ball observations ──
-        # Ball world position → agent knows where ball is
+        self.scene.hand_ball_contact_sensor = ContactSensorCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/(.*_shoulder_.*|.*_elbow.*|.*_wrist.*|.*_hand.*)",
+            filter_prim_paths_expr=["{ENV_REGEX_NS}/Football"],
+            track_air_time=False,
+        )
+
+        # ── Observations ──
         self.observations.policy.ball_pos = ObsTerm(
             func=mdp.root_pos_w,
             params={"asset_cfg": SceneEntityCfg("football")},
         )
+        self.observations.policy.ball_lin_vel = ObsTerm(
+            func=mdp.root_lin_vel_w,
+            params={"asset_cfg": SceneEntityCfg("football")},
+        )
 
-        # ── Ball reset on episode reset ──
+        # ── Events ──
+        # Register the custom contact buffer
+        self.events.setup_contact_buffer = EventTerm(
+            func=kick_events.init_contact_buffer,
+            mode="startup",
+        )
+
         self.events.reset_ball = EventTerm(
-            func=mdp.reset_root_state_uniform,
+            func=kick_events.reset_ball_curriculum,
             mode="reset",
             params={
-                "pose_range": {
-                    "x": (0.3, 0.7),
-                    "y": (-0.3, 0.3),
-                    "z": (0.11, 0.11),  # keep on ground
-                },
-                "velocity_range": {},
                 "asset_cfg": SceneEntityCfg("football"),
             },
         )
@@ -218,10 +238,13 @@ class H1KickEnvCfg(H1FlatEnvCfg):  # ← flat, not rough base
         # ── Terminations ──
         self.terminations.base_contact.params["sensor_cfg"].body_names = ".*torso_link"
 
+        # Terminate when ball hits the ground
+        self.terminations.ball_dropped = DoneTerm(
+            func=kick_mdp.ball_ground_contact,
+            params={"ball_cfg": SceneEntityCfg("football")},
+        )
 
-# ─────────────────────────────────────────────
-# PLAY CONFIG
-# ─────────────────────────────────────────────
+
 @configclass
 class H1KickEnvCfg_PLAY(H1KickEnvCfg):
     def __post_init__(self):

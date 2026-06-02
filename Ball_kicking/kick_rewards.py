@@ -1,9 +1,10 @@
-"""Kick-specific reward functions for H1 kicking task."""
+"""Kick-specific reward and termination functions for H1 juggling task."""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
+import math
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
@@ -11,69 +12,112 @@ from isaaclab.sensors import ContactSensor
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+# --- JUGGLING CONSTANTS ---
+H_B = 1.2
+H_F = 0.3
+M_B = 0.45
+G = 9.81
 
-def move_towards_ball(
+
+def juggle_impulse_gaussian(
     env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=".*ankle_link"),
+    sensor_cfg: SceneEntityCfg,
+    std: float = 2.0,
+) -> torch.Tensor:
+    """Reward impulse J using a Gaussian distribution centered at target impulse."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    dt = env.step_dt
+
+    # Net impulse = Force * dt
+    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
+    impulse = forces.norm(dim=-1).sum(dim=1) * dt
+
+    # Target Gaussian center
+    base_val = M_B * math.sqrt(2 * G * (H_B - H_F))
+    target_impulse = 2.5 * base_val
+
+    return torch.exp(-torch.square(impulse - target_impulse) / (std**2))
+
+
+def apex_height_band(
+    env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
 ) -> torch.Tensor:
-    """Reward the robot for moving its foot closer to the ball.
-
-    Returns shape: [N]
-    """
-    robot: Articulation = env.scene[robot_cfg.name]
+    """Reward ball reaching target height band (0.8m to 1.6m) at apex."""
     ball: RigidObject = env.scene[ball_cfg.name]
+    ball_z = ball.data.root_pos_w[:, 2]
+    ball_vz = ball.data.root_lin_vel_w[:, 2]
 
-    # Foot positions: [N, num_feet, 2] (xy only)
-    foot_pos = robot.data.body_pos_w[:, robot_cfg.body_ids, :2]
+    # Detect apex: vertical velocity near zero
+    at_apex = torch.abs(ball_vz) < 0.2
+    # Check if height is within band
+    in_band = (ball_z >= (H_B - 0.4)) & (ball_z <= (H_B + 0.4))
 
-    # Ball position: [N, 2] → unsqueeze to [N, 1, 2] for broadcasting
-    ball_pos = ball.data.root_pos_w[:, :2].unsqueeze(1)
-
-    # Distance from each foot to ball: [N, num_feet]
-    dist = torch.norm(foot_pos - ball_pos, dim=-1)
-
-    # Take minimum distance across feet: [N]
-    min_dist = dist.min(dim=1)[0]
-
-    # Reward: closer = higher. Clamp to avoid division explosion.
-    return 1.0 / torch.clamp(min_dist, min=0.1)
+    return (at_apex & in_band).float()
 
 
-def ball_feet_contact(
+def root_velocity_penalty(
     env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,  # points to foot_ball_contact_sensor
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Reward any foot contact with the ball.
+    """Penalize horizontal displacement (XY velocity) of the pelvis/base."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    return torch.sum(torch.square(robot.data.root_lin_vel_w[:, :2]), dim=1)
 
-    Returns shape: [N] — 1.0 if contact, 0.0 if not.
-    """
+
+def floor_is_lava(
+    env: ManagerBasedRLEnv,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+) -> torch.Tensor:
+    """Penalize when ball contacts the ground (Z < 0.15m)."""
+    ball: RigidObject = env.scene[ball_cfg.name]
+    return (ball.data.root_pos_w[:, 2] < 0.15).float()
+
+
+def ball_ground_contact(
+    env: ManagerBasedRLEnv,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+) -> torch.Tensor:
+    """Termination condition: Returns True for envs where the ball hits the ground."""
+    ball: RigidObject = env.scene[ball_cfg.name]
+    return ball.data.root_pos_w[:, 2] < 0.15
+
+
+def hand_contact_penalty(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Penalize hand/arm contact with the ball."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-
-    # Force history: [N, history_len, num_bodies, 3]
-    forces = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
-
-    # Max force magnitude across history and bodies: [N]
-    max_force = forces.norm(dim=-1).max(dim=1)[0].max(dim=1)[0]
-
-    # Binary contact: [N]
-    has_contact = max_force > 1.0
-
+    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
+    has_contact = forces.norm(dim=-1).max(dim=1)[0] > 1.0
     return has_contact.float()
 
 
-def ball_upward_velocity(
+def alternate_foot_penalty(
     env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+    sensor_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Reward upward ball velocity after being kicked.
+    """Penalize the same foot contacting the ball consecutively (Stage 3)."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
 
-    Returns shape: [N]
-    """
-    ball: RigidObject = env.scene[ball_cfg.name]
+    left_contact = forces[:, 0].norm(dim=-1) > 1.0
+    right_contact = forces[:, 1].norm(dim=-1) > 1.0
 
-    # Z-velocity of ball root: [N]
-    vel_z = ball.data.root_lin_vel_w[:, 2]
+    penalty = torch.zeros(env.num_envs, device=env.device)
 
-    # Only reward positive (upward) velocity
-    return torch.clamp(vel_z, min=0.0)
+    # Check against the custom buffer initialized in events.py
+    if hasattr(env, "last_contact_foot"):
+        same_left = left_contact & (env.last_contact_foot == 0)
+        same_right = right_contact & (env.last_contact_foot == 1)
+        penalty = (same_left | same_right).float()
+
+        # Update buffer state
+        env.last_contact_foot = torch.where(left_contact, 0, env.last_contact_foot)
+        env.last_contact_foot = torch.where(right_contact, 1, env.last_contact_foot)
+
+    current_stage = getattr(
+        env, "juggling_stage", torch.ones(env.num_envs, device=env.device)
+    )
+    return penalty * (current_stage == 3).float()
