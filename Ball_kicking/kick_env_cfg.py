@@ -1,28 +1,28 @@
 import math
 from dataclasses import MISSING
 
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.assets import ArticulationCfg, RigidObjectCfg
-from omni.isaac.lab.envs import ManagerBasedRLEnvCfg
-from omni.isaac.lab.managers import CurriculumTermCfg as CurrTerm
-from omni.isaac.lab.managers import EventTermCfg as EventTerm
-from omni.isaac.lab.managers import ObservationGroupCfg as ObsGroup
-from omni.isaac.lab.managers import ObservationTermCfg as ObsTerm
-from omni.isaac.lab.managers import RewardTermCfg as RewTerm
-from omni.isaac.lab.managers import SceneEntityCfg
-from omni.isaac.lab.managers import TerminationTermCfg as DoneTerm
-from omni.isaac.lab.scene import InteractiveSceneCfg
-from omni.isaac.lab.utils import configclass
-from omni.isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import (
+import isaac.lab.sim as sim_utils
+from isaac.lab.assets import ArticulationCfg, RigidObjectCfg
+from isaac.lab.envs import ManagerBasedRLEnvCfg
+from isaac.lab.managers import CurriculumTermCfg as CurrTerm
+from isaac.lab.managers import EventTermCfg as EventTerm
+from isaac.lab.managers import ObservationGroupCfg as ObsGroup
+from isaac.lab.managers import ObservationTermCfg as ObsTerm
+from isaac.lab.managers import RewardTermCfg as RewTerm
+from isaac.lab.managers import SceneEntityCfg
+from isaac.lab.managers import TerminationTermCfg as DoneTerm
+from isaac.lab.scene import InteractiveSceneCfg
+from isaac.lab.utils import configclass
+from isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import (
     LocomotionVelocityRoughEnvCfg,
 )
 
 # Import custom modules
-import observations
-import events
-import rewards
-import terminations
-import curriculum
+from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_curriculums
+from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_events
+from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_observations
+from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_rewards
+from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_terminations
 
 
 @configclass

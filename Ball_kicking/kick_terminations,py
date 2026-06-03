@@ -1,6 +1,6 @@
 import torch
-from omni.isaac.lab.envs import ManagerBasedRLEnv
-from omni.isaac.lab.managers import SceneEntityCfg
+from isaac.lab.envs import ManagerBasedRLEnv
+from isaac.lab.managers import SceneEntityCfg
 
 
 def torso_height_below(

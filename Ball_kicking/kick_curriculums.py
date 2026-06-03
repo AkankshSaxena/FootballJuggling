@@ -1,5 +1,5 @@
 import torch
-from omni.isaac.lab.envs import ManagerBasedRLEnv
+from isaac.lab.envs import ManagerBasedRLEnv
 
 
 def advance_curriculum_stage(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
