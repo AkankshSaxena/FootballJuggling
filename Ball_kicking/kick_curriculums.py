@@ -1,60 +1,113 @@
-"""Curriculum functions for H1 juggling task."""
-
 import torch
-from isaaclab.envs import ManagerBasedRLEnv
+from omni.isaac.lab.envs import ManagerBasedRLEnv
 
 
-def juggling_stage_curriculum(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,
-    success_threshold: float = 0.8,
-    radius_step: float = 0.05,
-    max_radius: float = 0.5,
-) -> None:
+def advance_curriculum_stage(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
     """
-    Dynamically adjusts the ball drop radius (Stage 2) and activates alternate foot
-    penalty (Stage 3) based on environment success rate.
+    Evaluates transition gates and updates curriculum stages and distances.
+    This tracks success rates across a rolling buffer of episodes to trigger promotions.
     """
-    # 1. Initialize custom curriculum state buffers on first call
-    if not hasattr(env, "ball_radius"):
-        env.ball_radius = torch.zeros(
-            env.num_envs, dtype=torch.float32, device=env.device
-        )
-        # Stages: 1 (Fixed), 2 (Radius expanding), 3 (Alternate foot active)
-        env.juggling_stage = torch.ones(
+    if not hasattr(env, "curriculum_stage"):
+        env.curriculum_stage = 1
+        env.stage6_distance = 0.15
+        # 100-episode rolling success buffer per environment
+        env.episode_success_buf = torch.zeros((env.num_envs, 100), device=env.device)
+        env.episode_counts = torch.zeros(
             env.num_envs, dtype=torch.long, device=env.device
         )
-        env.success_ema = torch.zeros(
-            env.num_envs, dtype=torch.float32, device=env.device
-        )
 
-    if len(env_ids) == 0:
-        return
+    stage = env.curriculum_stage
 
-    # 2. Evaluate Success (Survival)
-    # If the environment reached the timeout without triggering "floor is lava", it's a success.
-    ep_lengths = env.episode_length_buf[env_ids]
-    is_success = (ep_lengths >= env.max_episode_length - 1).float()
+    # Check success criteria for terminating environments
+    success = torch.zeros_like(env_ids, dtype=torch.bool)
 
-    # Update Exponential Moving Average of success rate (alpha = 0.2)
-    env.success_ema[env_ids] = 0.8 * env.success_ema[env_ids] + 0.2 * is_success
+    contacts = getattr(env, "ball_contact_counts", torch.zeros_like(env_ids))[env_ids]
+    leg_raises = getattr(env, "leg_raise_counts", torch.zeros_like(env_ids))[env_ids]
+    apex_valid = getattr(
+        env, "ball_apex_valid", torch.zeros_like(env_ids, dtype=torch.bool)
+    )[env_ids]
 
-    # 3. Stage Progression Logic
-    ready_to_advance = env.success_ema[env_ids] >= success_threshold
+    # Assume maximum episode length (15s) is tracked by episode_length_buf matching max length
+    timeout = (env.episode_length_buf[env_ids] * env.step_dt) >= 14.9
 
-    # --- Stage 2: Expand Radius ---
-    # Envs that hit 80% success but haven't reached 0.5m radius yet
-    can_increase_radius = ready_to_advance & (env.ball_radius[env_ids] < max_radius)
-    env.ball_radius[env_ids[can_increase_radius]] += radius_step
+    if stage == 1:
+        success = (leg_raises >= 15) & timeout
+    elif stage == 2:
+        success = (contacts >= 15) & timeout
+    elif stage == 3:
+        success = (contacts >= 10) & apex_valid & timeout
+    elif stage in [4, 5]:
+        success = (contacts >= 2) & apex_valid & timeout
+    elif stage == 6:
+        success = (contacts >= 2) & apex_valid & timeout
 
-    # Reset success EMA for those that leveled up so they must prove themselves at the new difficulty
-    env.success_ema[env_ids[can_increase_radius]] = 0.0
+    # Update rolling success buffer
+    for i, env_idx in enumerate(env_ids):
+        count = env.episode_counts[env_idx]
+        env.episode_success_buf[env_idx, count % 100] = success[i].float()
+        env.episode_counts[env_idx] += 1
 
-    # Update stage flag
-    is_stage_2 = (env.ball_radius[env_ids] > 0.0) & (env.juggling_stage[env_ids] < 2)
-    env.juggling_stage[env_ids[is_stage_2]] = 2
+    # Calculate global success rate across all environments
+    total_episodes_avg = env.episode_counts.float().mean().item()
+    global_success_rate = env.episode_success_buf.mean().item()
 
-    # --- Stage 3: Consecutive Touches (Alternate Foot) ---
-    # Envs that hit 80% success and have already mastered the 0.5m radius
-    ready_for_stage_3 = ready_to_advance & (env.ball_radius[env_ids] >= max_radius)
-    env.juggling_stage[env_ids[ready_for_stage_3]] = 3
+    # Transition Logic
+    if stage == 1 and total_episodes_avg >= 100:
+        if global_success_rate >= 0.90:
+            env.curriculum_stage = 2
+            env.episode_counts.zero_()
+
+    elif stage == 2 and total_episodes_avg >= 50:
+        recent_50_success = env.episode_success_buf[:, :50].mean().item()
+        if recent_50_success >= 0.90:
+            env.curriculum_stage = 3
+            env.episode_counts.zero_()
+
+    elif stage == 3 and total_episodes_avg >= 100:
+        if global_success_rate >= 0.90:
+            env.curriculum_stage = 4
+            env.episode_counts.zero_()
+
+    elif stage == 4 and total_episodes_avg >= 100:
+        if global_success_rate >= 0.85:
+            env.curriculum_stage = 5
+            env.episode_counts.zero_()
+
+    elif stage == 5 and total_episodes_avg >= 100:
+        if global_success_rate >= 0.80:
+            env.curriculum_stage = 6
+            env.episode_counts.zero_()
+            env.stage6_distance = 0.15
+
+    elif stage == 6:
+        # Distance Increment Logic (every 10 episodes)
+        if total_episodes_avg > 0 and int(total_episodes_avg) % 10 == 0:
+            idx_start = (int(total_episodes_avg) - 10) % 100
+            idx_end = int(total_episodes_avg) % 100
+
+            # Handle wrapping buffer indices safely
+            if idx_end > idx_start:
+                recent_10_success = (
+                    env.episode_success_buf[:, idx_start:idx_end].mean().item()
+                )
+            else:
+                recent_10_success = (
+                    torch.cat(
+                        [
+                            env.episode_success_buf[:, idx_start:],
+                            env.episode_success_buf[:, :idx_end],
+                        ],
+                        dim=1,
+                    )
+                    .mean()
+                    .item()
+                )
+
+            if recent_10_success >= 0.80 and env.stage6_distance < 0.6:
+                env.stage6_distance = min(0.6, env.stage6_distance + 0.03)
+
+        # Stage Transition Logic
+        if total_episodes_avg >= 100 and env.stage6_distance >= 0.6:
+            if global_success_rate >= 0.80:
+                env.curriculum_stage = 7
+                env.episode_counts.zero_()

@@ -1,0 +1,237 @@
+Stage 1 — Leg raises and maintaining posture n stability (no ball)
+Environment: 
+    No ball spawned. Just the robot.
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp - shud be 0
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s 
+    ankle height - shud be between 0.1-0.3
+Transition gate: 
+    success rate - 90% in 100 iternations
+    success metrics -
+    - >=15 counts of leg raises 
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+
+Stage 2 — Floating but fixed ball at height at 0.3m
+Environment: 
+    Ball fixed at height 0.3m and at 0.15m in front of the robot    
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp - shud be 0
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s
+    count of contacts btw ball n foot - reward for contacts with ground
+    impulse on the ball must be within the range 2.5*M_B * math.sqrt(2 * G * (H_B - H_F)) +- 20%
+    alternate foot - if alternate foot touch the ball (small until stage 7)
+Transition gate: 
+    success rate - 90% in 50 iternations
+    success metrics -
+    - >=15 contacts with the ball 
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+
+Stage 3 — Impact within the band
+Environment: 
+    Ball spawned at height 0.3m and allowed to translate in vertical (z axis) (when kicked goes up and come back to orignal height due to gravity and stays there until kicked again) and at 0.15m in front of the robot    
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp 
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s
+    count of contacts btw ball n foot - reward for contacts with ground
+    impulse on the ball must be within the range 2.5*M_B * math.sqrt(2 * G * (H_B - H_F)) +- 40% (and weight reduced)
+    ball apex height - ball reaches the height of 1m +- 0.2m
+    alternate foot - if alternate foot touch the ball (small until stage 7)
+Transition gate: 
+    success rate - 90% in 100 iternations
+    success metrics -
+    - >=10 contacts with the ball 
+    - ball apex is between the band height
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+
+Stage 4 — ball dropped from 60cm 
+Environment: 
+    ball dropped from 0.6m and 0.15m away from robot
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp 
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s
+    count of contacts btw ball n foot - reward for contacts with ground
+    impulse on the ball must be within the range 2.5*M_B * math.sqrt(2 * G * (H_B - H_F)) +- 40% (and weight reduced)
+    ball apex height - ball reaches the height of 1m +- 0.2m
+    alternate foot - if alternate foot touch the ball (small until stage 7)
+    ball xy velocity - penalty for balls montion in xy direc  
+Transition gate: 
+    success rate - 85% in 100 iternations
+    success metrics -
+    - >=2 contacts with the ball 
+    - ball apex is between the band height
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+    ball contact ground + delay of 2s
+
+Stage 5 — ball dropped from 1m 
+Environment: 
+    ball dropped from 1m and 0.15m away from robot
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp 
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s
+    count of contacts btw ball n foot - reward for contacts with ground
+    impulse on the ball must be within the range 2.5*M_B * math.sqrt(2 * G * (H_B - H_F)) +- 40% (and weight reduced)
+    ball apex height - ball reaches the height of 1m +- 0.2m
+    alternate foot - if alternate foot touch the ball (small until stage 7)
+    ball xy velocity - penalty for balls montion in xy direc  
+Transition gate: 
+    success rate - 80% in 100 iternations
+    success metrics -
+    - >=2 contacts with the ball 
+    - ball apex is between the band height
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+    ball contact ground + delay of 2s
+
+Stage 6 — ball dropped from 1m with continuously increasing distance (0.03m increments till 0.6m)
+Environment: 
+    ball dropped from 1m and 0.15m away from robot and after each succefull iterations set (10 iterations) increase balls spawned distance by 0.03m till its 0.6m
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp 
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+
+    ball_xy_drift_penalty: grows linearly with ||ball_pos_xy - spawn_pos_xy||
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s
+    count of contacts btw ball n foot - reward for contacts with ground
+    impulse on the ball must be within the range 2.5*M_B * math.sqrt(2 * G * (H_B - H_F)) +- 40% (and weight reduced)
+    ball apex height - ball reaches the height of 1m +- 0.2m
+    alternate foot - if alternate foot touch the ball (small until stage 7)
+    ball xy velocity - penalty for balls montion in xy direc  
+Transition gate: 
+    success param for increament - 80% in 10 iternations
+    success metrics -
+    - >=2 contacts with the ball 
+    - ball apex is between the band height
+    - episodes terminate due to time (15s)
+
+    success rate - 80% in 100 iternations
+    success metrics -
+    - >=2 contacts with the ball 
+    - balls spawned distance 0.6m
+    - ball apex is between the band height
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+    ball contact ground + delay of 2s
+
+Stage 7 — Enforcing alternate leg juggles
+Environment: 
+    ball spawned randomely near the robot at 1m height and between 0.15-0.6m dist
+Rewards:
+    termination_penalty - when robot falls 
+    lin_vel_z_l2 - shud be 0
+    track_lin_vel_xy_exp - shud be 0
+    track_ang_vel_z_exp - shud be 0
+    track_lin_vel_ball_xy_exp - shud be 0 
+    track_lin_vel_ball_z_exp 
+    feet_air_time - reward only when air time is between 0.2-0.5s
+    feet_slide - shud be 0
+    dof_pos_limits - smae as for walking 
+    joint_deviation_hip - same as for walking 
+    joint_deviation_arms - same as for walking 
+    joint_deviation_torso - same as for walking
+
+    leg raises reward - if ankle is above ground between the height 0.1m-0.3m for 0.2-0.5s
+    count of contacts btw ball n foot - reward for contacts with ground
+    juggle_streak_bonus = streak_count² × 1.5
+    impulse on the ball must be within the range 2.5*M_B * math.sqrt(2 * G * (H_B - H_F)) +- 40% (and weight reduced)
+    ball apex height - ball reaches the height of 1m +- 0.2m
+    alternate foot - if alternate foot touch the ball (large)
+    ball xy velocity - penalty for balls montion in xy direc  
+Transition gate: 
+    success rate - 80% in 100 iternations
+    success metrics -
+    - >=4 contacts with the ball 
+    - balls spawned distance 0.6m
+    - No same foot contacts are there
+    - ball apex is between the band height
+    - episodes terminate due to time (15s)
+Terminations:
+    robot falls - torso <0.3
+    episode length - run time < 15s
+    ball contact ground + delay of 2s
+
+
+

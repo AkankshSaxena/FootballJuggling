@@ -1,167 +1,133 @@
-"""Kick-specific reward and termination functions for H1 juggling task."""
-
-from __future__ import annotations
-from typing import TYPE_CHECKING
-
 import torch
 import math
-from isaaclab.assets import Articulation, RigidObject
-from isaaclab.managers import SceneEntityCfg
-from isaaclab.sensors import ContactSensor
-
-if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedRLEnv
-
-# --- JUGGLING CONSTANTS ---
-H_B = 1.2
-H_F = 0.3
-M_B = 0.45
-G = 9.81
+from omni.isaac.lab.envs import ManagerBasedRLEnv
+from omni.isaac.lab.managers import SceneEntityCfg
 
 
-def juggle_impulse_gaussian(
+def leg_raise_and_air_time(
     env: ManagerBasedRLEnv,
     sensor_cfg: SceneEntityCfg,
-    std: float = 2.0,
+    min_height: float = 0.1,
+    max_height: float = 0.3,
+    min_time: float = 0.2,
+    max_time: float = 0.5,
 ) -> torch.Tensor:
-    """Reward impulse J using a Gaussian distribution centered at target impulse."""
-    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    dt = env.step_dt
+    """
+    Rewards maintaining the ankle above ground between 0.1m and 0.3m
+    for an air time of 0.2s to 0.5s.
+    """
+    # Assuming sensor_cfg points to the foot/ankle bodies
+    foot_height = env.scene[sensor_cfg.name].data.root_pos_w[:, 2]
+    air_time = getattr(env, "feet_air_time", torch.zeros_like(foot_height))
 
-    # Net impulse = Force * dt
-    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
-    impulse = forces.norm(dim=-1).sum(dim=1) * dt
+    height_mask = (foot_height >= min_height) & (foot_height <= max_height)
+    time_mask = (air_time >= min_time) & (air_time <= max_time)
 
-    # Target Gaussian center
-    base_val = M_B * math.sqrt(2 * G * (H_B - H_F))
-    target_impulse = 2.5 * base_val
-
-    return torch.exp(-torch.square(impulse - target_impulse) / (std**2))
+    return (height_mask & time_mask).float()
 
 
-def apex_height_band(
+def track_ball_velocity_xy_exp(
     env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
+    std: float = 0.5,
 ) -> torch.Tensor:
-    """Reward ball reaching target height band (0.8m to 1.6m) at apex."""
-    ball: RigidObject = env.scene[ball_cfg.name]
-    ball_z = ball.data.root_pos_w[:, 2]
-    ball_vz = ball.data.root_lin_vel_w[:, 2]
-
-    # Detect apex: vertical velocity near zero
-    at_apex = torch.abs(ball_vz) < 0.2
-    # Check if height is within band
-    in_band = (ball_z >= (H_B - 0.4)) & (ball_z <= (H_B + 0.4))
-
-    return (at_apex & in_band).float()
+    """Penalizes the ball's motion in the XY direction."""
+    ball_vel_xy = env.scene[ball_cfg.name].data.root_lin_vel_w[:, :2]
+    return torch.exp(-torch.sum(torch.square(ball_vel_xy), dim=1) / std**2)
 
 
-def root_velocity_penalty(
+def ball_xy_drift_penalty(
     env: ManagerBasedRLEnv,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Penalize horizontal displacement (XY velocity) of the pelvis/base."""
-    robot: Articulation = env.scene[robot_cfg.name]
-    return torch.sum(torch.square(robot.data.root_lin_vel_w[:, :2]), dim=1)
+    """
+    Grows linearly with ||ball_pos_xy - spawn_pos_xy||.
+    Approximates spawn_pos_xy based on robot root + stage distance.
+    """
+    ball_pos_xy = env.scene[ball_cfg.name].data.root_pos_w[:, :2]
+    robot_pos_xy = env.scene[robot_cfg.name].data.root_pos_w[:, :2]
+
+    dist_val = getattr(env, "stage6_distance", 0.15)
+    spawn_pos_xy = robot_pos_xy.clone()
+    spawn_pos_xy[:, 0] += dist_val  # Assuming +X forward spawn
+
+    drift = torch.norm(ball_pos_xy - spawn_pos_xy, dim=1)
+    return -drift  # Linear penalty
 
 
-def floor_is_lava(
+def target_impulse_reward(
     env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
+    target_apex_height: float = 1.0,
+    mass_ball: float = 0.43,  # standard football mass
+    gravity: float = 9.81,
+    tolerance: float = 0.40,  # 40% tolerance for stages 3-7
 ) -> torch.Tensor:
-    """Penalize when ball contacts the ground (Z < 0.15m)."""
-    ball: RigidObject = env.scene[ball_cfg.name]
-    return (ball.data.root_pos_w[:, 2] < 0.15).float()
+    """
+    Rewards impacts where the impulse on the ball is within the range:
+    2.5 * M_B * sqrt(2 * G * (H_B - H_F)) +- tolerance
+    """
+    ball_vel = env.scene[ball_cfg.name].data.root_lin_vel_w[:, 2]
+    ball_pos_z = env.scene[ball_cfg.name].data.root_pos_w[:, 2]
 
-
-def ball_ground_contact(
-    env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
-) -> torch.Tensor:
-    """Termination condition: Returns True for envs where the ball hits the ground."""
-    ball: RigidObject = env.scene[ball_cfg.name]
-    return ball.data.root_pos_w[:, 2] < 0.15
-
-
-def hand_contact_penalty(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """Penalize hand/arm contact with the ball."""
-    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
-    has_contact = forces.norm(dim=-1).max(dim=1)[0] > 1.0
-    return has_contact.float()
-
-
-def alternate_foot_penalty(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """Penalize the same foot contacting the ball consecutively (Stage 3)."""
-    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
-
-    left_contact = forces[:, 0].norm(dim=-1) > 1.0
-    right_contact = forces[:, 1].norm(dim=-1) > 1.0
-
-    penalty = torch.zeros(env.num_envs, device=env.device)
-
-    # Check against the custom buffer initialized in events.py
-    if hasattr(env, "last_contact_foot"):
-        same_left = left_contact & (env.last_contact_foot == 0)
-        same_right = right_contact & (env.last_contact_foot == 1)
-        penalty = (same_left | same_right).float()
-
-        # Update buffer state
-        env.last_contact_foot = torch.where(left_contact, 0, env.last_contact_foot)
-        env.last_contact_foot = torch.where(right_contact, 1, env.last_contact_foot)
-
-    current_stage = getattr(
-        env, "juggling_stage", torch.ones(env.num_envs, device=env.device)
+    # Calculate target upward velocity (v = sqrt(2*g*h))
+    # Using upward velocity directly simplifies impulse calculation over mass
+    target_vel_z = torch.sqrt(
+        2 * gravity * torch.clamp(target_apex_height - ball_pos_z, min=0.01)
     )
-    return penalty * (current_stage == 3).float()
+    target_impulse = 2.5 * mass_ball * target_vel_z
 
-def foot_tracking_reward(
-    env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
+    # Actual calculated vertical impulse based on velocity change (approximation post-impact)
+    actual_impulse = mass_ball * ball_vel
+
+    # Reward 1.0 if within tolerance band, 0.0 otherwise
+    lower_bound = target_impulse * (1.0 - tolerance)
+    upper_bound = target_impulse * (1.0 + tolerance)
+
+    in_band = (actual_impulse >= lower_bound) & (actual_impulse <= upper_bound)
+    return in_band.float()
+
+
+def ball_apex_height_reward(
+    env: ManagerBasedRLEnv, target_height: float = 1.0, tolerance: float = 0.2
 ) -> torch.Tensor:
-    """Reward the robot for moving its feet closer to the ball."""
-    robot: Articulation = env.scene[robot_cfg.name]
-    ball: RigidObject = env.scene[ball_cfg.name]
-    
-    foot_positions = robot.data.body_pos_w[:, robot_cfg.body_ids, :] 
-    ball_position = ball.data.root_pos_w.unsqueeze(1) 
-    
-    distances = torch.norm(foot_positions - ball_position, dim=-1)
-    min_distance = torch.min(distances, dim=1)[0]
-    
-    return torch.exp(-2.0 * min_distance)
+    """Rewards when the ball's apex height reaches 1m +- 0.2m."""
+    apex_height = getattr(
+        env, "ball_apex_height", torch.zeros(env.num_envs, device=env.device)
+    )
+
+    lower_bound = target_height - tolerance
+    upper_bound = target_height + tolerance
+
+    in_band = (apex_height >= lower_bound) & (apex_height <= upper_bound)
+    return in_band.float()
 
 
-def ball_height_reward(
-    env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("football"),
-) -> torch.Tensor:
-    """Reward for keeping the ball elevated: max(0, ball_z - floor_z)."""
-    ball: RigidObject = env.scene[ball_cfg.name]
-    ball_z = ball.data.root_pos_w[:, 2]
-    
-    return torch.clamp(ball_z, min=0.0)
+def alternate_foot_reward(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    Rewards when an alternating foot touches the ball.
+    Relies on env tracking `current_contact_foot` and `last_contact_foot`.
+    """
+    current_foot = getattr(
+        env, "current_contact_foot", torch.zeros(env.num_envs, device=env.device)
+    )
+    last_foot = getattr(
+        env, "last_contact_foot", torch.zeros(env.num_envs, device=env.device)
+    )
+
+    # Assuming 1 for Left, 2 for Right, 0 for None
+    valid_contact = current_foot > 0
+    alternated = current_foot != last_foot
+
+    return (valid_contact & alternated).float()
 
 
-def foot_ball_contact_reward(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """Discrete reward (1 or 0) for the foot making contact with the ball."""
-    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    
-    # Extract the net forces applied to the foot bodies
-    forces = contact_sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids, :]
-    
-    # Check if the maximum force vector length exceeds a small noise threshold
-    has_contact = forces.norm(dim=-1).max(dim=1)[0] > 0.1
-    
-    return has_contact.float()
+def juggle_streak_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    juggle_streak_bonus = streak_count^2 * 1.5
+    """
+    streak_count = getattr(
+        env, "juggle_streak_count", torch.zeros(env.num_envs, device=env.device)
+    )
+    return (streak_count**2) * 1.5
