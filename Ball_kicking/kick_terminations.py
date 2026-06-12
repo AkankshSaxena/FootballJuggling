@@ -1,7 +1,13 @@
 import torch
-from isaac.lab.envs import ManagerBasedRLEnv
-from isaac.lab.managers import SceneEntityCfg
+from isaaclab.envs import ManagerBasedRLEnv
+from isaaclab.managers import SceneEntityCfg
 
+def time_out(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    Terminate episodes that reach the time limit.
+    Relies on self.episode_length_s = 15.0 defined in env_cfg.
+    """
+    return env.episode_length_buf >= env.max_episode_length
 
 def torso_height_below(
     env: ManagerBasedRLEnv,

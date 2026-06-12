@@ -1,54 +1,55 @@
-import math
 from dataclasses import MISSING
 
-import isaac.lab.sim as sim_utils
-from isaac.lab.assets import ArticulationCfg, RigidObjectCfg
-from isaac.lab.envs import ManagerBasedRLEnvCfg
-from isaac.lab.managers import CurriculumTermCfg as CurrTerm
-from isaac.lab.managers import EventTermCfg as EventTerm
-from isaac.lab.managers import ObservationGroupCfg as ObsGroup
-from isaac.lab.managers import ObservationTermCfg as ObsTerm
-from isaac.lab.managers import RewardTermCfg as RewTerm
-from isaac.lab.managers import SceneEntityCfg
-from isaac.lab.managers import TerminationTermCfg as DoneTerm
-from isaac.lab.scene import InteractiveSceneCfg
-from isaac.lab.utils import configclass
-from isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import (
-    LocomotionVelocityRoughEnvCfg,
+import isaaclab.sim as sim_utils
+import isaaclab.envs.mdp as mdp  
+from isaaclab.assets import ArticulationCfg, RigidObjectCfg, AssetBaseCfg
+from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
+from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import ObservationGroupCfg as ObsGroup
+from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.utils import configclass
+from isaaclab.terrains import TerrainImporterCfg
+from isaaclab_assets import H1_MINIMAL_CFG  
+# Importing your custom kick_* modules
+from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
+    kick_curriculums, 
+    kick_events, 
+    kick_observations, 
+    kick_rewards, 
+    kick_terminations
 )
-
-# Import custom modules
-from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_curriculums
-from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_events
-from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_observations
-from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_rewards
-from isaaclab.IsaacLab.source.isaaclab_tasks.isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_terminations
-
 
 @configclass
 class H1JuggleSceneCfg(InteractiveSceneCfg):
     """Configuration for the juggling scene."""
 
     # Ground plane
-    terrain = sim_utils.GroundPlaneCfg()
-
-    # Robot asset
-    robot: ArticulationCfg = (
-        MISSING  
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
     )
 
+    # Robot asset
+    robot: ArticulationCfg = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # Ball asset
     ball: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Ball",
         spawn=sim_utils.SphereCfg(
             radius=0.12,
-            mass=0.43,
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.43),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=False,
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(
                 collision_enabled=True,
+            ),
+            physics_material=sim_utils.RigidBodyMaterialCfg(
                 restitution=0.8,
             ),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 1.0, 1.0)),
@@ -57,7 +58,21 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
     )
 
     # Lights
-    light = sim_utils.DomeLightCfg(intensity=2000.0)
+    light = AssetBaseCfg(
+        prim_path="/World/light",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0),
+    )
+
+
+@configclass
+class H1JuggleActionsCfg:
+    """Action specifications for the environment."""
+    joint_pos = mdp.JointPositionActionCfg(
+        asset_name="robot", 
+        joint_names=[".*"], 
+        scale=0.5, 
+        use_default_offset=True
+    )
 
 
 @configclass
@@ -66,28 +81,27 @@ class H1JuggleObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        # Robot state (assuming base locomotion states are included here)
-        base_lin_vel = ObsTerm(func=lambda env: env.scene["robot"].data.root_lin_vel_b)
-        base_ang_vel = ObsTerm(func=lambda env: env.scene["robot"].data.root_ang_vel_b)
-        joint_pos = ObsTerm(func=lambda env: env.scene["robot"].data.joint_pos)
-        joint_vel = ObsTerm(func=lambda env: env.scene["robot"].data.joint_vel)
-
-        # Custom Ball State
+        # Robot state (using standard mdp imports instead of lambdas)
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
+        joint_pos = ObsTerm(func=mdp.joint_pos)
+        joint_vel = ObsTerm(func=mdp.joint_vel)
+        # Custom Ball State (routed to kick_observations)
         ball_pos_robot_frame = ObsTerm(
-            func=observations.ball_position_in_robot_frame,
+            func=kick_observations.ball_position_in_robot_frame,
             params={
                 "ball_cfg": SceneEntityCfg("ball"),
                 "robot_cfg": SceneEntityCfg("robot"),
             },
         )
         ball_lin_vel_robot_frame = ObsTerm(
-            func=observations.ball_linear_velocity_in_robot_frame,
+            func=kick_observations.ball_linear_velocity_in_robot_frame,
             params={
                 "ball_cfg": SceneEntityCfg("ball"),
                 "robot_cfg": SceneEntityCfg("robot"),
             },
         )
-        last_contact_foot = ObsTerm(func=observations.last_contact_foot)
+        last_contact_foot = ObsTerm(func=kick_observations.last_contact_foot)
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -101,7 +115,7 @@ class H1JuggleEventCfg:
     """Configuration for events."""
 
     reset_ball = EventTerm(
-        func=events.reset_ball_position_and_velocity,
+        func=kick_events.reset_ball_position_and_velocity,
         mode="reset",
         params={
             "ball_cfg": SceneEntityCfg("ball"),
@@ -110,7 +124,7 @@ class H1JuggleEventCfg:
     )
 
     reset_tracking_vars = EventTerm(
-        func=events.reset_custom_tracking_variables,
+        func=kick_events.reset_juggling_state,
         mode="reset",
     )
 
@@ -119,14 +133,22 @@ class H1JuggleEventCfg:
 class H1JuggleRewardsCfg:
     """Reward configuration matching curriculum stages."""
 
-    # Penalties
-    lin_vel_z_l2 = RewTerm(func=rewards.lin_vel_z_l2, weight=-1.0)
-    feet_slide = RewTerm(func=rewards.feet_slide, weight=-0.2)
-    dof_pos_limits = RewTerm(func=rewards.dof_pos_limits, weight=-0.5)
+    # Penalties (routed to kick_rewards)
+    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.0)
+    
+    feet_slide = RewTerm(
+        func=kick_rewards.feet_slide,
+        weight=-0.2,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
+        },
+    )
+        
+    dof_pos_limits = RewTerm(func=kick_rewards.dof_pos_limits, weight=-0.5)
 
-    # Custom Ball & Juggling Rewards
     leg_raise = RewTerm(
-        func=rewards.leg_raise_and_air_time,
+        func=kick_rewards.leg_raise_reward,
         params={
             "sensor_cfg": SceneEntityCfg(
                 "robot", body_names=["left_ankle", "right_ankle"]
@@ -136,30 +158,30 @@ class H1JuggleRewardsCfg:
     )
 
     target_impulse = RewTerm(
-        func=rewards.target_impulse_reward,
+        func=kick_rewards.target_impulse_reward,
         params={"ball_cfg": SceneEntityCfg("ball"), "target_apex_height": 1.0},
         weight=5.0,
     )
 
     ball_apex = RewTerm(
-        func=rewards.ball_apex_height_reward,
+        func=kick_rewards.ball_apex_height_reward,
         params={"target_height": 1.0, "tolerance": 0.2},
         weight=5.0,
     )
 
-    alternate_foot = RewTerm(func=rewards.alternate_foot_reward, weight=2.0)
+    alternate_foot = RewTerm(func=kick_rewards.alternate_foot_reward, weight=2.0)
 
-    juggle_streak = RewTerm(func=rewards.juggle_streak_bonus, weight=1.0)
+    juggle_streak = RewTerm(func=kick_rewards.juggle_streak_bonus, weight=1.0)
 
-    # Custom Penalties
+    # Custom Penalties (routed to kick_rewards)
     ball_xy_velocity = RewTerm(
-        func=rewards.track_ball_velocity_xy_exp,
+        func=kick_rewards.track_lin_vel_ball_xy_exp,
         params={"ball_cfg": SceneEntityCfg("ball")},
         weight=1.0, 
     )
 
     ball_xy_drift = RewTerm(
-        func=rewards.ball_xy_drift_penalty,
+        func=kick_rewards.ball_xy_drift_penalty,
         params={
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
@@ -172,15 +194,15 @@ class H1JuggleRewardsCfg:
 class H1JuggleTerminationsCfg:
     """Termination criteria."""
 
-    time_out = DoneTerm(func=terminations.time_out, time_out=True)
+    time_out = DoneTerm(func=kick_terminations.time_out, time_out=True)
 
     robot_falls = DoneTerm(
-        func=terminations.torso_height_below,
+        func=kick_terminations.torso_height_below,
         params={"minimum_height": 0.3, "asset_cfg": SceneEntityCfg("robot")},
     )
 
     ball_ground_contact = DoneTerm(
-        func=terminations.ball_ground_contact_with_delay,
+        func=kick_terminations.ball_ground_contact_with_delay,
         params={"ball_cfg": SceneEntityCfg("ball"), "delay_s": 2.0},
     )
 
@@ -189,7 +211,7 @@ class H1JuggleTerminationsCfg:
 class H1JuggleCurriculumCfg:
     """Curriculum configurations."""
 
-    stage_progression = CurrTerm(func=curriculum.advance_curriculum_stage)
+    stage_progression = CurrTerm(func=kick_curriculums.advance_curriculum_stage)
 
 
 @configclass
@@ -197,6 +219,8 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the Unitree H1 Juggle Environment."""
 
     scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=2.5)
+    actions: H1JuggleActionsCfg = H1JuggleActionsCfg()
+    # CRITICAL FIX: These must retain their default attribute names to be recognized by Isaac Lab.
     observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
     events: H1JuggleEventCfg = H1JuggleEventCfg()
     rewards: H1JuggleRewardsCfg = H1JuggleRewardsCfg()
@@ -206,4 +230,4 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         self.episode_length_s = 15.0
         self.decimation = 4
-        self.sim.dt = 0.005 
+        self.sim.dt = 0.005

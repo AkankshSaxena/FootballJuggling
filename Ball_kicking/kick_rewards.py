@@ -4,12 +4,13 @@ import math
 import torch
 from typing import TYPE_CHECKING
 
-from omni.isaac.lab.assets import Articulation, RigidObject
-from omni.isaac.lab.managers import SceneEntityCfg
-from omni.isaac.lab.sensors import ContactSensor
+from isaaclab.assets import Articulation
+from isaaclab.assets import RigidObject
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.sensors import ContactSensor
 
 if TYPE_CHECKING:
-    from omni.isaac.lab.envs import ManagerBasedRLEnv
+    from isaaclab.envs import ManagerBasedRLEnv
 
 _GRAVITY: float = 9.81
 _BALL_MASS: float = 0.43 
@@ -159,26 +160,24 @@ def joint_deviation_torso(
 
 
 def feet_slide(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["left_ankle_link", "right_ankle_link"]),
+    env, 
+    sensor_cfg: SceneEntityCfg, 
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Penalise foot sliding while in contact with the ground (same as locomotion).
+    """Penalize feet sliding.
 
-    Returns:
-        Tensor of shape (num_envs,).
+    This function penalizes the agent for sliding its feet on the ground. The reward is computed as the
+    norm of the linear velocity of the feet multiplied by a binary contact sensor. This ensures that the
+    agent is penalized only when the feet are in contact with the ground.
     """
-    contact_sensor: ContactSensor = env.scene[sensor_cfg.name]
-    robot: Articulation = env.scene[robot_cfg.name]
+    # Penalize feet sliding
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+    asset = env.scene[asset_cfg.name]
 
-    # Contact is active when net force magnitude > threshold
-    contacts = contact_sensor.data.net_forces_w_history[:, :, robot_cfg.body_ids, :]
-    in_contact = torch.max(torch.norm(contacts, dim=-1), dim=1).values > 1.0  # (num_envs, 2)
-
-    # Foot velocity in XY
-    feet_vel = robot.data.body_lin_vel_w[:, robot_cfg.body_ids, :2]  # (num_envs, 2, 2)
-    slide = torch.sum(torch.norm(feet_vel, dim=-1) * in_contact.float(), dim=1)
-    return slide
+    body_vel = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]
+    reward = torch.sum(body_vel.norm(dim=-1) * contacts, dim=1)
+    return reward
 
 def leg_raise_reward(
     env: ManagerBasedRLEnv,
