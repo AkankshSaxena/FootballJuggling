@@ -2,7 +2,7 @@
 # =============================================================================
 # Isaac Lab Setup Script — A6000 / Brev
 # Idempotent: safe to re-run. Skips steps already done.
-# Usage: bash setup_isaaclab.sh [--skip-driver] [--skip-gui] [--skip-sim]
+# Usage: bash setup_isaaclab.sh [--skip-driver] [--skip-sim]
 # =============================================================================
 
 set -e
@@ -16,7 +16,6 @@ SKIP_SIM=false
 for arg in "$@"; do
   case $arg in
     --skip-driver) SKIP_DRIVER=true ;;
-    --skip-gui)    SKIP_GUI=true ;;
     --skip-sim)    SKIP_SIM=true ;;  # skip Isaac Sim download (already done)
   esac
 done
@@ -92,30 +91,9 @@ grep -qxF "export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json" ~/.b
 green "Vulkan configured"
 
 # =============================================================================
-# STEP 3: NoMachine (GUI)
+# STEP 3: Miniconda
 # =============================================================================
-step "STEP 3: NoMachine for GUI"
-
-if $SKIP_GUI; then
-  yellow "Skipping NoMachine (--skip-gui)"
-elif systemctl is-active --quiet nxserver 2>/dev/null; then
-  green "NoMachine already running"
-else
-  NX_DEB="nomachine_8.16.1_1_amd64.deb"
-  if [ ! -f "$NX_DEB" ]; then
-    wget "https://www.nomachine.com/free/linux/64/deb" -O nomachine.deb
-  fi
-  sudo dpkg -i $NX_DEB
-  sudo systemctl enable nxserver
-  sudo systemctl start nxserver
-  green "NoMachine installed and running on port 4000"
-  yellow "Connect with: ssh -L 4000:localhost:4000 user@<VM_IP>"
-fi
-
-# =============================================================================
-# STEP 4: Miniconda
-# =============================================================================
-step "STEP 4: Miniconda"
+step "STEP 3: Miniconda"
 
 if [ -d "$HOME/miniconda3" ]; then
   green "Miniconda already installed"
@@ -137,9 +115,9 @@ grep -qxF ". $HOME/miniconda3/etc/profile.d/conda.sh" ~/.bashrc || \
   conda init bash
 
 # =============================================================================
-# STEP 5: Conda Environment
+# STEP 4: Conda Environment
 # =============================================================================
-step "STEP 5: Conda Environment ($CONDA_ENV)"
+step "STEP 4: Conda Environment ($CONDA_ENV)"
 
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
@@ -154,9 +132,9 @@ conda activate $CONDA_ENV
 conda install pip -y
 
 # =============================================================================
-# STEP 6: Isaac Sim Download + Install
+# STEP 5: Isaac Sim Download + Install
 # =============================================================================
-step "STEP 6: Isaac Sim"
+step "STEP 5: Isaac Sim"
 
 mkdir -p "$HOME/isaacsim"
 
@@ -177,9 +155,9 @@ else
 fi
 
 # =============================================================================
-# STEP 7: Clone Isaac Lab
+# STEP 6: Clone Isaac Lab
 # =============================================================================
-step "STEP 7: Isaac Lab"
+step "STEP 6: Isaac Lab"
 
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
@@ -193,9 +171,9 @@ else
 fi
 
 # =============================================================================
-# STEP 8: Link Isaac Sim → Isaac Lab + Install
+# STEP 7: Link Isaac Sim → Isaac Lab + Install
 # =============================================================================
-step "STEP 8: Link and Install"
+step "STEP 7: Link and Install"
 
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 conda activate $CONDA_ENV
@@ -221,18 +199,18 @@ fi
 green "Isaac Lab installed"
 
 # =============================================================================
-# STEP 9: Extra Python Packages
+# STEP 8: Extra Python Packages
 # =============================================================================
-step "STEP 9: Extra Packages (wandb, etc.)"
+step "STEP 8: Extra Packages (wandb, etc.)"
 
 pip install -q wandb
 
 green "Extra packages installed"
 
 # =============================================================================
-# STEP 10: Smoke Test
+# STEP 9: Smoke Test
 # =============================================================================
-step "STEP 10: Smoke Test"
+step "STEP 9: Smoke Test"
 
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 conda activate $CONDA_ENV
@@ -263,11 +241,5 @@ echo "║  Isaac Sim : $ISAAC_SIM_DIR"
 echo "║  Isaac Lab : $ISAACLAB_DIR"
 echo "║  Conda env : $CONDA_ENV"
 echo "║  Log file  : $LOGFILE"
-echo "╠══════════════════════════════════════════════════════╣"
-echo "║  GUI ACCESS (NoMachine):                             ║"
-echo "║   1. Local: ssh -L 4000:localhost:4000 user@<IP>    ║"
-echo "║   2. Open NoMachine → connect to localhost:4000     ║"
-echo "║  GUI ACCESS (Headless Xvfb):                        ║"
-echo "║   Xvfb :0 -screen 0 1920x1080x24 &                 ║"
-echo "║   DISPLAY=:0 ./isaac-sim.sh                         ║"
 echo "╚══════════════════════════════════════════════════════╝"
+
