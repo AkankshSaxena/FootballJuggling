@@ -34,7 +34,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
 
     # Robot asset
     robot: ArticulationCfg = (
-        MISSING  # Must be populated with H1 specific articulation config
+        MISSING  
     )
 
     # Ball asset
@@ -155,7 +155,7 @@ class H1JuggleRewardsCfg:
     ball_xy_velocity = RewTerm(
         func=rewards.track_ball_velocity_xy_exp,
         params={"ball_cfg": SceneEntityCfg("ball")},
-        weight=1.0,  # Uses track_exp, positive weight encourages value to stay near 1 (vel=0)
+        weight=1.0, 
     )
 
     ball_xy_drift = RewTerm(
@@ -164,7 +164,7 @@ class H1JuggleRewardsCfg:
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
         },
-        weight=1.0,  # Penalty function returns negative natively
+        weight=1.0, 
     )
 
 
@@ -196,7 +196,6 @@ class H1JuggleCurriculumCfg:
 class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the Unitree H1 Juggle Environment."""
 
-    # Core
     scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=2.5)
     observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
     events: H1JuggleEventCfg = H1JuggleEventCfg()
@@ -207,6 +206,4 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         self.episode_length_s = 15.0
         self.decimation = 4
-        self.sim.dt = 0.005  # 200Hz
-
-        # Override to headless constraints mapped via CLI in Isaac Lab
+        self.sim.dt = 0.005 

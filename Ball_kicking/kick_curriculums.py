@@ -1,7 +1,6 @@
 import torch
 from isaac.lab.envs import ManagerBasedRLEnv
 
-
 def advance_curriculum_stage(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
     """
     Evaluates transition gates and updates curriculum stages and distances.

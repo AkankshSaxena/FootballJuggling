@@ -12,7 +12,7 @@ class H1KickPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 5000
     save_interval = 50
     experiment_name = "h1_kick"
-    empirical_normalization = False  # add this — normalizes obs at runner level
+    empirical_normalization = False  
 
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

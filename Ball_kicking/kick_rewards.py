@@ -1,10 +1,3 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
-"""Reward functions for H1 juggling environment."""
-
 from __future__ import annotations
 
 import math
@@ -18,19 +11,9 @@ from omni.isaac.lab.sensors import ContactSensor
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
 
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 _GRAVITY: float = 9.81
-_BALL_MASS: float = 0.43       # kg — standard football
-_FOOT_HEIGHT_CONST: float = 0.1  # m — H_F fixed at min ankle raise height
-
-
-# ---------------------------------------------------------------------------
-# Postural / stability rewards  (all stages)
-# ---------------------------------------------------------------------------
+_BALL_MASS: float = 0.43 
+_FOOT_HEIGHT_CONST: float = 0.1 
 
 
 def lin_vel_z_l2(env: ManagerBasedRLEnv, robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
@@ -105,12 +88,6 @@ def track_lin_vel_ball_z_exp(
     ball: RigidObject = env.scene[ball_cfg.name]
     ball_vel_z = ball.data.root_lin_vel_w[:, 2]
     return torch.exp(-torch.square(ball_vel_z) / std**2)
-
-
-# ---------------------------------------------------------------------------
-# Joint / DoF rewards  (all stages — same as H1 walking)
-# ---------------------------------------------------------------------------
-
 
 def dof_pos_limits(
     env: ManagerBasedRLEnv,
@@ -203,12 +180,6 @@ def feet_slide(
     slide = torch.sum(torch.norm(feet_vel, dim=-1) * in_contact.float(), dim=1)
     return slide
 
-
-# ---------------------------------------------------------------------------
-# Leg-raise reward  (Stages 1–7)
-# ---------------------------------------------------------------------------
-
-
 def leg_raise_reward(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["left_ankle_link", "right_ankle_link"]),
@@ -247,12 +218,6 @@ def leg_raise_reward(
 
     # Reward = number of feet satisfying both conditions (0, 1, or 2)
     return (in_height_band & in_time_band).float().sum(dim=1)
-
-
-# ---------------------------------------------------------------------------
-# Ball–foot contact rewards  (Stages 2–7)
-# ---------------------------------------------------------------------------
-
 
 def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
@@ -330,12 +295,6 @@ def ball_foot_contact_reward(
 
     return any_contact.float()
 
-
-# ---------------------------------------------------------------------------
-# Impulse reward  (Stages 2–7)
-# ---------------------------------------------------------------------------
-
-
 def target_impulse_reward(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
@@ -385,12 +344,6 @@ def target_impulse_reward(
     in_band = (actual_impulse >= lower) & (actual_impulse <= upper)
     return (contact_this_step & in_band).float()
 
-
-# ---------------------------------------------------------------------------
-# Ball apex height reward  (Stages 3–7)
-# ---------------------------------------------------------------------------
-
-
 def ball_apex_height_reward(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
@@ -425,12 +378,6 @@ def ball_apex_height_reward(
         & (env.ball_apex_height <= target_height + tolerance)
     )
     return (at_apex & in_band).float()
-
-
-# ---------------------------------------------------------------------------
-# XY drift / velocity penalties  (Stages 4–7)
-# ---------------------------------------------------------------------------
-
 
 def ball_xy_velocity_penalty(
     env: ManagerBasedRLEnv,
@@ -470,13 +417,7 @@ def ball_xy_drift_penalty(
     spawn_pos_xy[:, 0] += dist_val
 
     drift = torch.norm(ball_pos_xy - spawn_pos_xy, dim=1)
-    return drift  # positive scalar — applied as negative weight in config
-
-
-# ---------------------------------------------------------------------------
-# Alternating foot reward  (Stages 2–7, large weight from Stage 7)
-# ---------------------------------------------------------------------------
-
+    return drift  
 
 def alternate_foot_reward(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Reward when the contacting foot alternates from the previous contact.
@@ -496,12 +437,6 @@ def alternate_foot_reward(env: ManagerBasedRLEnv) -> torch.Tensor:
     alternated = env.juggle_streak_buf > 0
     return alternated.float()
 
-
-# ---------------------------------------------------------------------------
-# Juggle streak bonus  (Stage 7)
-# ---------------------------------------------------------------------------
-
-
 def juggle_streak_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Bonus that scales quadratically with the consecutive alt-foot streak.
 
@@ -515,12 +450,6 @@ def juggle_streak_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
 
     streak = env.juggle_streak_buf.float()
     return streak.pow(2) * 1.5
-
-
-# ---------------------------------------------------------------------------
-# Termination penalty  (all stages)
-# ---------------------------------------------------------------------------
-
 
 def termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Large negative reward on the step the episode terminates early (fall).

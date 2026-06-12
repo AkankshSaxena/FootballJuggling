@@ -1,10 +1,3 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
-"""Event functions for H1 juggling environment."""
-
 from __future__ import annotations
 
 import torch
@@ -15,12 +8,6 @@ from omni.isaac.lab.managers import SceneEntityCfg
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
-
-
-##
-# Ball reset
-##
-
 
 def reset_ball_position_and_velocity(
     env: ManagerBasedRLEnv,
@@ -93,12 +80,6 @@ def reset_ball_position_and_velocity(
     )
     ball.write_root_velocity_to_sim(ball_vel, env_ids=env_ids)
 
-
-##
-# Tracking variable resets
-##
-
-
 def reset_juggling_state(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor,
@@ -136,12 +117,6 @@ def reset_juggling_state(
 
     if hasattr(env, "contact_count"):
         env.contact_count[env_ids] = 0
-
-
-##
-# Stage 6 distance increment
-##
-
 
 def increment_stage6_distance(env: ManagerBasedRLEnv) -> None:
     """Increment the Stage 6 ball spawn distance after a successful iteration set.

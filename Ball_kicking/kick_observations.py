@@ -1,10 +1,3 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
-"""Observation functions for H1 juggling environment."""
-
 from __future__ import annotations
 
 import torch
@@ -16,12 +9,6 @@ from omni.isaac.lab.managers import SceneEntityCfg
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
-
-
-##
-# Ball observations
-##
-
 
 def ball_position_in_robot_frame(
     env: ManagerBasedRLEnv,
@@ -103,12 +90,6 @@ def ball_position_world(
     ball: RigidObject = env.scene[ball_cfg.name]
     return ball.data.root_pos_w.clone()
 
-
-##
-# Foot observations
-##
-
-
 def feet_position_in_robot_frame(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["left_ankle_link", "right_ankle_link"]),
@@ -149,12 +130,6 @@ def feet_height_world(
     robot: Articulation = env.scene[robot_cfg.name]
     feet_pos_w = robot.data.body_pos_w[:, robot_cfg.body_ids, :]  # (num_envs, 2, 3)
     return feet_pos_w[:, :, 2]  # (num_envs, 2)
-
-
-##
-# Stage / curriculum observations
-##
-
 
 def last_contact_foot(env: ManagerBasedRLEnv) -> torch.Tensor:
     """One-hot encoding of the last foot to contact the ball.
