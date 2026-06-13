@@ -28,7 +28,7 @@ def ball_position_in_robot_frame(
     rel_pos_w = ball.data.root_pos_w - robot.data.root_pos_w
 
     # Rotate into robot base frame
-    rel_pos_b = math_utils.quat_rotate_inverse(robot.data.root_quat_w, rel_pos_w)
+    rel_pos_b = math_utils.quat_apply_inverse(robot.data.root_quat_w, rel_pos_w)
     return rel_pos_b
 
 
@@ -45,7 +45,7 @@ def ball_linear_velocity_in_robot_frame(
     ball: RigidObject = env.scene[ball_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
 
-    ball_lin_vel_b = math_utils.quat_rotate_inverse(
+    ball_lin_vel_b = math_utils.quat_apply_inverse(
         robot.data.root_quat_w, ball.data.root_lin_vel_w
     )
     return ball_lin_vel_b
@@ -111,7 +111,7 @@ def feet_position_in_robot_frame(
     rel_pos_w = feet_pos_w - robot.data.root_pos_w.unsqueeze(1)
 
     # Rotate each foot position into base frame
-    feet_pos_b = math_utils.quat_rotate_inverse(
+    feet_pos_b = math_utils.quat_apply_inverse(
         root_quat.reshape(-1, 4),
         rel_pos_w.reshape(-1, 3),
     ).reshape(env.num_envs, -1)  # (num_envs, 6)

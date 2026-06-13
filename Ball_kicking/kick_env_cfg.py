@@ -29,12 +29,16 @@ from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
 class H1JuggleSceneCfg(InteractiveSceneCfg):
     """Configuration for the juggling scene."""
 
-    # Ground plane
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="plane",
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=0.0,       
+        ),
     )
-
+    
     # Robot asset
     robot: ArticulationCfg = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # Ball asset
@@ -123,6 +127,32 @@ class H1JuggleObservationsCfg:
 class H1JuggleEventCfg:
     """Configuration for events."""
 
+    reset_base = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-3.14, 3.14)},
+            "velocity_range": {
+                "x": (0.0, 0.0),
+                "y": (0.0, 0.0),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0.0, 0.0),
+                "yaw": (0.0, 0.0),
+            },
+        },
+    )
+
+    reset_robot_joints = EventTerm(
+        func=mdp.reset_joints_by_scale,
+        mode="reset",
+        params={
+            "position_range": (1.0, 1.0), # 1.0 scales default positions exactly
+            "velocity_range": (0.0, 0.0),
+        },
+    )
+
+    # Your existing ball reset
     reset_ball = EventTerm(
         func=kick_events.reset_ball_position_and_velocity,
         mode="reset",
@@ -132,6 +162,7 @@ class H1JuggleEventCfg:
         },
     )
 
+    # Your existing tracking vars reset
     reset_tracking_vars = EventTerm(
         func=kick_events.reset_juggling_state,
         mode="reset",
@@ -256,3 +287,10 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 15.0
         self.decimation = 4
         self.sim.dt = 0.005
+
+        # Fix ground penetration
+        self.sim.physx.solver_type = 1                 
+        self.sim.physx.num_position_iterations = 8    
+        self.sim.physx.num_velocity_iterations = 1
+        self.sim.physx.bounce_threshold_velocity = 0.2
+        self.sim.physx.gpu_collision_stack_size = 2**26  
