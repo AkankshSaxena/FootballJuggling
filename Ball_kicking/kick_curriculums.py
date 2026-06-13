@@ -20,12 +20,12 @@ def advance_curriculum_stage(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
     # Check success criteria for terminating environments
     success = torch.zeros_like(env_ids, dtype=torch.bool)
 
-    contacts = getattr(env, "ball_contact_counts", torch.zeros_like(env_ids))[env_ids]
-    leg_raises = getattr(env, "leg_raise_counts", torch.zeros_like(env_ids))[env_ids]
-    apex_valid = getattr(
-        env, "ball_apex_valid", torch.zeros_like(env_ids, dtype=torch.bool)
-    )[env_ids]
-
+    default_zero = torch.zeros(env.num_envs, device=env.device)
+    contacts = getattr(env, "contact_count", default_zero)[env_ids]
+    leg_raises = getattr(env, "leg_raise_counts", default_zero)[env_ids]
+    apex_heights = getattr(env, "ball_apex_height", default_zero)[env_ids]
+    apex_valid = (apex_heights >= 0.8) & (apex_heights <= 1.2)
+    
     # Assume maximum episode length (15s) is tracked by episode_length_buf matching max length
     timeout = (env.episode_length_buf[env_ids] * env.step_dt) >= 14.9
 

@@ -15,6 +15,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab_assets import H1_MINIMAL_CFG  
+from isaaclab.sensors import ContactSensorCfg
 # Importing your custom kick_* modules
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
     kick_curriculums, 
@@ -62,7 +63,12 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         prim_path="/World/light",
         spawn=sim_utils.DomeLightCfg(intensity=2000.0),
     )
-
+    
+    contact_forces = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*",
+        history_length=3,
+        track_air_time=True,
+    )
 
 @configclass
 class H1JuggleActionsCfg:
@@ -150,8 +156,8 @@ class H1JuggleRewardsCfg:
     leg_raise = RewTerm(
         func=kick_rewards.leg_raise_reward,
         params={
-            "sensor_cfg": SceneEntityCfg(
-                "robot", body_names=["left_ankle", "right_ankle"]
+            "robot_cfg": SceneEntityCfg(
+                "robot", body_names=["left_ankle_link", "right_ankle_link"]
             )
         },
         weight=2.0,
@@ -159,7 +165,12 @@ class H1JuggleRewardsCfg:
 
     target_impulse = RewTerm(
         func=kick_rewards.target_impulse_reward,
-        params={"ball_cfg": SceneEntityCfg("ball"), "target_apex_height": 1.0},
+        params={
+            "ball_cfg": SceneEntityCfg("ball"), 
+            "target_apex_height": 1.0,
+            # ADD THIS: Point the function to the correct sensor we just created
+            "foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_link")
+        },
         weight=5.0,
     )
 
