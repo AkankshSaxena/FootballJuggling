@@ -31,6 +31,12 @@ def ball_ground_contact_with_delay(
     Terminates the episode if the ball contacts the ground and remains there
     (or falls below threshold) for longer than the specified delay (2s).
     """
+    
+    stage = getattr(env, "curriculum_stage", 1)
+    if stage == 1:
+        # Return a tensor of all False (no terminations)
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
     ball = env.scene[ball_cfg.name]
     ball_height = ball.data.root_pos_w[:, 2]
 
