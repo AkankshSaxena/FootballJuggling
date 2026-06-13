@@ -116,6 +116,9 @@ def reset_juggling_state(
     if hasattr(env, "leg_raise_timer"):
         env.leg_raise_timer[env_ids] = 0.0
 
+    if hasattr(env, "leg_raise_counts"):
+        env.leg_raise_counts[env_ids] = 0
+    
     if hasattr(env, "contact_count"):
         env.contact_count[env_ids] = 0
 
