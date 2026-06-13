@@ -201,12 +201,19 @@ def leg_raise_reward(
 
     in_height_band = (feet_pos_z >= min_height) & (feet_pos_z <= max_height)
 
-    # Update timer: increment while in band, reset when out
+    # Initialize timer and counter if they don't exist
     if not hasattr(env, "leg_raise_timer"):
         env.leg_raise_timer = torch.zeros(
             (env.num_envs, 2), device=env.device, dtype=torch.float32
         )
+    if not hasattr(env, "leg_raise_counts"):
+        env.leg_raise_counts = torch.zeros(
+            env.num_envs, device=env.device, dtype=torch.long
+        )
 
+    # Store previous timer state to detect the exact moment it crosses min_time
+    prev_timer = env.leg_raise_timer.clone()
+    
     env.leg_raise_timer = torch.where(
         in_height_band,
         env.leg_raise_timer + env.step_dt,
@@ -214,7 +221,9 @@ def leg_raise_reward(
     )
 
     in_time_band = (env.leg_raise_timer >= min_time) & (env.leg_raise_timer <= max_time)
-
+     # Increment count for any foot that just crossed the min_time threshold this timestep
+    just_reached_min_time = (prev_timer < min_time) & (env.leg_raise_timer >= min_time)
+    env.leg_raise_counts += just_reached_min_time.long().sum(dim=1)
     # Reward = number of feet satisfying both conditions (0, 1, or 2)
     return (in_height_band & in_time_band).float().sum(dim=1)
 
