@@ -92,6 +92,9 @@ class H1JuggleObservationsCfg:
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
         joint_pos = ObsTerm(func=mdp.joint_pos)
         joint_vel = ObsTerm(func=mdp.joint_vel)
+
+        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        
         # Custom Ball State (routed to kick_observations)
         ball_pos_robot_frame = ObsTerm(
             func=kick_observations.ball_position_in_robot_frame,
@@ -140,7 +143,7 @@ class H1JuggleRewardsCfg:
     """Reward configuration matching curriculum stages."""
 
     # Penalties (routed to kick_rewards)
-    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.0)
+    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.5)
     
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
@@ -160,7 +163,7 @@ class H1JuggleRewardsCfg:
                 "robot", body_names=["left_ankle_link", "right_ankle_link"]
             )
         },
-        weight=2.0,
+        weight=0.2,
     )
 
     target_impulse = RewTerm(
@@ -171,13 +174,13 @@ class H1JuggleRewardsCfg:
             # ADD THIS: Point the function to the correct sensor we just created
             "foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_link")
         },
-        weight=5.0,
+        weight=3.0,
     )
 
     ball_apex = RewTerm(
         func=kick_rewards.ball_apex_height_reward,
         params={"target_height": 1.0, "tolerance": 0.2},
-        weight=5.0,
+        weight=3.0,
     )
 
     alternate_foot = RewTerm(func=kick_rewards.alternate_foot_reward, weight=2.0)
@@ -200,6 +203,17 @@ class H1JuggleRewardsCfg:
         weight=1.0, 
     )
 
+    base_height = RewTerm(
+        func=mdp.base_height_l2,
+        weight=-2.0,
+        params={"target_height": 0.98},  # H1 nominal standing height
+    )
+    
+    orientation_penalty = RewTerm(
+        func=mdp.flat_orientation_l2,
+        weight=-2.0,
+    )
+
 
 @configclass
 class H1JuggleTerminationsCfg:
@@ -209,7 +223,7 @@ class H1JuggleTerminationsCfg:
 
     robot_falls = DoneTerm(
         func=kick_terminations.torso_height_below,
-        params={"minimum_height": 0.3, "asset_cfg": SceneEntityCfg("robot")},
+        params={"minimum_height": 0.6, "asset_cfg": SceneEntityCfg("robot")},
     )
 
     ball_ground_contact = DoneTerm(
