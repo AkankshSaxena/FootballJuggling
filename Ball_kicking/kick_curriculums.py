@@ -1,32 +1,34 @@
+import os
 import torch
 from isaaclab.envs import ManagerBasedRLEnv
 
+SIGNAL_FILE = "/tmp/advance_stage.signal"
+
+
 def advance_curriculum_stage(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
-    """
-    Evaluates transition gates and updates curriculum stages and distances.
-    This tracks success rates across a rolling buffer of episodes to trigger promotions.
-    """
     if not hasattr(env, "curriculum_stage"):
         env.curriculum_stage = 1
         env.stage6_distance = 0.15
-        # 100-episode rolling success buffer per environment
         env.episode_success_buf = torch.zeros((env.num_envs, 100), device=env.device)
         env.episode_counts = torch.zeros(
             env.num_envs, dtype=torch.long, device=env.device
         )
 
-    stage = env.curriculum_stage
+    if os.path.exists(SIGNAL_FILE):
+        os.remove(SIGNAL_FILE)
+        prev = env.curriculum_stage
+        env.curriculum_stage = min(env.curriculum_stage + 1, 7)
+        env.episode_counts.zero_()
+        if prev != env.curriculum_stage:
+            print(f"\n[CURRICULUM] Stage {prev} → {env.curriculum_stage}\n")
 
-    # Check success criteria for terminating environments
-    success = torch.zeros_like(env_ids, dtype=torch.bool)
+    stage = env.curriculum_stage
 
     default_zero = torch.zeros(env.num_envs, device=env.device)
     contacts = getattr(env, "contact_count", default_zero)[env_ids]
     leg_raises = getattr(env, "leg_raise_counts", default_zero)[env_ids]
     apex_heights = getattr(env, "ball_apex_height", default_zero)[env_ids]
-    apex_valid = (apex_heights >= 0.8) & (apex_heights <= 1.2)
-    
-    # Assume maximum episode length (15s) is tracked by episode_length_buf matching max length
+    apex_valid = (apex_heights >= 0.8) & (apex_heights <= 1.6)
     timeout = (env.episode_length_buf[env_ids] * env.step_dt) >= 14.9
 
     if stage == 1:
@@ -37,76 +39,45 @@ def advance_curriculum_stage(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
         success = (contacts >= 10) & apex_valid & timeout
     elif stage in [4, 5]:
         success = (contacts >= 2) & apex_valid & timeout
-    elif stage == 6:
+    else:  # 6, 7
         success = (contacts >= 2) & apex_valid & timeout
 
-    # Update rolling success buffer
     for i, env_idx in enumerate(env_ids):
         count = env.episode_counts[env_idx]
         env.episode_success_buf[env_idx, count % 100] = success[i].float()
         env.episode_counts[env_idx] += 1
 
-    # Calculate global success rate across all environments
-    total_episodes_avg = env.episode_counts.float().mean().item()
-    global_success_rate = env.episode_success_buf.mean().item()
-
-    # Transition Logic
-    if stage == 1 and total_episodes_avg >= 100:
-        if global_success_rate >= 0.90:
-            env.curriculum_stage = 2
-            env.episode_counts.zero_()
-
-    elif stage == 2 and total_episodes_avg >= 50:
-        recent_50_success = env.episode_success_buf[:, :50].mean().item()
-        if recent_50_success >= 0.90:
-            env.curriculum_stage = 3
-            env.episode_counts.zero_()
-
-    elif stage == 3 and total_episodes_avg >= 100:
-        if global_success_rate >= 0.90:
-            env.curriculum_stage = 4
-            env.episode_counts.zero_()
-
-    elif stage == 4 and total_episodes_avg >= 100:
-        if global_success_rate >= 0.85:
-            env.curriculum_stage = 5
-            env.episode_counts.zero_()
-
-    elif stage == 5 and total_episodes_avg >= 100:
-        if global_success_rate >= 0.80:
-            env.curriculum_stage = 6
-            env.episode_counts.zero_()
-            env.stage6_distance = 0.15
-
-    elif stage == 6:
-        # Distance Increment Logic (every 10 episodes)
-        if total_episodes_avg > 0 and int(total_episodes_avg) % 10 == 0:
-            idx_start = (int(total_episodes_avg) - 10) % 100
-            idx_end = int(total_episodes_avg) % 100
-
-            # Handle wrapping buffer indices safely
-            if idx_end > idx_start:
-                recent_10_success = (
-                    env.episode_success_buf[:, idx_start:idx_end].mean().item()
-                )
+    if stage == 6:
+        total_avg = env.episode_counts.float().mean().item()
+        if total_avg > 0 and int(total_avg) % 10 == 0:
+            idx_s = (int(total_avg) - 10) % 100
+            idx_e = int(total_avg) % 100
+            if idx_e > idx_s:
+                recent = env.episode_success_buf[:, idx_s:idx_e].mean().item()
             else:
-                recent_10_success = (
+                recent = (
                     torch.cat(
                         [
-                            env.episode_success_buf[:, idx_start:],
-                            env.episode_success_buf[:, :idx_end],
+                            env.episode_success_buf[:, idx_s:],
+                            env.episode_success_buf[:, :idx_e],
                         ],
                         dim=1,
                     )
                     .mean()
                     .item()
                 )
-
-            if recent_10_success >= 0.80 and env.stage6_distance < 0.6:
+            if recent >= 0.80 and env.stage6_distance < 0.6:
                 env.stage6_distance = min(0.6, env.stage6_distance + 0.03)
+                print(f"[CURRICULUM] Stage 6 distance → {env.stage6_distance:.2f}")
 
-        # Stage Transition Logic
-        if total_episodes_avg >= 100 and env.stage6_distance >= 0.6:
-            if global_success_rate >= 0.80:
-                env.curriculum_stage = 7
-                env.episode_counts.zero_()
+    if "log" not in env.extras:
+        env.extras["log"] = {}
+
+    env.extras["log"]["curriculum/stage"] = float(env.curriculum_stage)
+    env.extras["log"]["curriculum/stage6_distance"] = float(
+        getattr(env, "stage6_distance", 0.0)
+    )
+    env.extras["log"]["curriculum/success_rate"] = env.episode_success_buf.mean().item()
+    env.extras["log"]["curriculum/episodes_avg"] = (
+        env.episode_counts.float().mean().item()
+    )

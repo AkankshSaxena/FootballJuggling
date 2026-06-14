@@ -13,11 +13,13 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 _GRAVITY: float = 9.81
-_BALL_MASS: float = 0.43 
-_FOOT_HEIGHT_CONST: float = 0.1 
+_BALL_MASS: float = 0.43
+_FOOT_HEIGHT_CONST: float = 0.1
 
 
-def lin_vel_z_l2(env: ManagerBasedRLEnv, robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+def lin_vel_z_l2(
+    env: ManagerBasedRLEnv, robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
     """Penalise vertical linear velocity of the robot base (should be 0).
 
     Returns:
@@ -90,6 +92,7 @@ def track_lin_vel_ball_z_exp(
     ball_vel_z = ball.data.root_lin_vel_w[:, 2]
     return torch.exp(-torch.square(ball_vel_z) / std**2)
 
+
 def dof_pos_limits(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -111,7 +114,9 @@ def dof_pos_limits(
 
 def joint_deviation_hip(
     env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=[".*_hip_yaw", ".*_hip_roll"]),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", joint_names=[".*_hip_yaw", ".*_hip_roll"]
+    ),
 ) -> torch.Tensor:
     """Penalise hip yaw/roll deviation from zero (same as H1 locomotion).
 
@@ -128,7 +133,9 @@ def joint_deviation_arms(
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
         joint_names=[
-            ".*_shoulder_pitch", ".*_shoulder_roll", ".*_shoulder_yaw",
+            ".*_shoulder_pitch",
+            ".*_shoulder_roll",
+            ".*_shoulder_yaw",
             ".*_elbow",
         ],
     ),
@@ -160,9 +167,7 @@ def joint_deviation_torso(
 
 
 def feet_slide(
-    env, 
-    sensor_cfg: SceneEntityCfg, 
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
     """Penalize feet sliding.
 
@@ -172,19 +177,27 @@ def feet_slide(
     """
     # Penalize feet sliding
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+    contacts = (
+        contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
+        .norm(dim=-1)
+        .max(dim=1)[0]
+        > 1.0
+    )
     asset = env.scene[asset_cfg.name]
 
     body_vel = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]
     reward = torch.sum(body_vel.norm(dim=-1) * contacts, dim=1)
     return reward
 
+
 def leg_raise_reward(
     env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["left_ankle_link", "right_ankle_link"]),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["left_ankle_link", "right_ankle_link"]
+    ),
     min_height: float = 0.1,
     max_height: float = 0.3,
-    min_time: float = 0.2,
+    min_time: float = 0.05,
     max_time: float = 0.5,
 ) -> torch.Tensor:
     """Reward each ankle that is held in the height band [min_height, max_height]
@@ -213,7 +226,7 @@ def leg_raise_reward(
 
     # Store previous timer state to detect the exact moment it crosses min_time
     prev_timer = env.leg_raise_timer.clone()
-    
+
     env.leg_raise_timer = torch.where(
         in_height_band,
         env.leg_raise_timer + env.step_dt,
@@ -221,11 +234,12 @@ def leg_raise_reward(
     )
 
     in_time_band = (env.leg_raise_timer >= min_time) & (env.leg_raise_timer <= max_time)
-     # Increment count for any foot that just crossed the min_time threshold this timestep
+    # Increment count for any foot that just crossed the min_time threshold this timestep
     just_reached_min_time = (prev_timer < min_time) & (env.leg_raise_timer >= min_time)
     env.leg_raise_counts += just_reached_min_time.long().sum(dim=1)
     # Reward = number of feet satisfying both conditions (0, 1, or 2)
     return (in_height_band & in_time_band).float().sum(dim=1)
+
 
 def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
@@ -249,21 +263,21 @@ def ball_foot_contact_reward(
 
     # Net force on each foot body this step: (num_envs, 2, 3)
     # Sensor bodies order: [left_ankle, right_ankle]
-    foot_forces = foot_sensor.data.net_forces_w[:, :2, :]   # (num_envs, 2, 3)
-    foot_force_mag = torch.norm(foot_forces, dim=-1)         # (num_envs, 2)
+    foot_forces = foot_sensor.data.net_forces_w[:, :2, :]  # (num_envs, 2, 3)
+    foot_force_mag = torch.norm(foot_forces, dim=-1)  # (num_envs, 2)
 
     # Ball sensor net force: (num_envs, 1, 3) — contact with anything
-    ball_forces = ball_sensor.data.net_forces_w[:, 0, :]    # (num_envs, 3)
-    ball_force_mag = torch.norm(ball_forces, dim=-1)         # (num_envs,)
+    ball_forces = ball_sensor.data.net_forces_w[:, 0, :]  # (num_envs, 3)
+    ball_force_mag = torch.norm(ball_forces, dim=-1)  # (num_envs,)
 
     FORCE_THRESH = 1.0  # N
 
     # A contact with the ball occurs when both the foot AND ball sensors fire
-    ball_contacted = ball_force_mag > FORCE_THRESH           # (num_envs,)
-    left_contact  = (foot_force_mag[:, 0] > FORCE_THRESH) & ball_contacted
+    ball_contacted = ball_force_mag > FORCE_THRESH  # (num_envs,)
+    left_contact = (foot_force_mag[:, 0] > FORCE_THRESH) & ball_contacted
     right_contact = (foot_force_mag[:, 1] > FORCE_THRESH) & ball_contacted
 
-    any_contact = left_contact | right_contact               # (num_envs,)
+    any_contact = left_contact | right_contact  # (num_envs,)
 
     # --- Update tracking buffers ---
     if not hasattr(env, "last_contact_foot"):
@@ -280,17 +294,21 @@ def ball_foot_contact_reward(
         )
 
     # Current contact one-hot: left=[1,0], right=[0,1]
-    current_contact_foot = torch.stack([left_contact.float(), right_contact.float()], dim=1)
+    current_contact_foot = torch.stack(
+        [left_contact.float(), right_contact.float()], dim=1
+    )
 
     # Streak: increments if the contacting foot differs from the last
-    prev_was_left  = env.last_contact_foot[:, 0] > 0.5
+    prev_was_left = env.last_contact_foot[:, 0] > 0.5
     prev_was_right = env.last_contact_foot[:, 1] > 0.5
     alternated = (left_contact & prev_was_right) | (right_contact & prev_was_left)
 
     env.juggle_streak_buf = torch.where(
         any_contact & alternated,
         env.juggle_streak_buf + 1,
-        torch.where(any_contact, torch.zeros_like(env.juggle_streak_buf), env.juggle_streak_buf),
+        torch.where(
+            any_contact, torch.zeros_like(env.juggle_streak_buf), env.juggle_streak_buf
+        ),
     )
     env.contact_count += any_contact.long()
 
@@ -302,6 +320,7 @@ def ball_foot_contact_reward(
     )
 
     return any_contact.float()
+
 
 def target_impulse_reward(
     env: ManagerBasedRLEnv,
@@ -333,24 +352,26 @@ def target_impulse_reward(
     foot_force_mag = torch.norm(foot_forces, dim=-1)
     contact_this_step = foot_force_mag.sum(dim=1) > 1.0  # (num_envs,)
 
-    ball_pos_z = ball.data.root_pos_w[:, 2]              # (num_envs,)
-    ball_vel_z = ball.data.root_lin_vel_w[:, 2]          # (num_envs,)
+    ball_pos_z = ball.data.root_pos_w[:, 2]  # (num_envs,)
+    ball_vel_z = ball.data.root_lin_vel_w[:, 2]  # (num_envs,)
 
     # Target upward velocity to reach apex
     h_diff = torch.clamp(
-        torch.tensor(target_apex_height, device=env.device) - torch.tensor(foot_height, device=env.device),
+        torch.tensor(target_apex_height, device=env.device)
+        - torch.tensor(foot_height, device=env.device),
         min=0.01,
     )
     target_vel_z = math.sqrt(2.0 * gravity * float(h_diff))
 
-    target_impulse = 2.5 * mass_ball * target_vel_z      # scalar
-    actual_impulse = mass_ball * ball_vel_z               # (num_envs,)
+    target_impulse = 2.5 * mass_ball * target_vel_z  # scalar
+    actual_impulse = mass_ball * ball_vel_z  # (num_envs,)
 
     lower = target_impulse * (1.0 - tolerance)
     upper = target_impulse * (1.0 + tolerance)
 
     in_band = (actual_impulse >= lower) & (actual_impulse <= upper)
     return (contact_this_step & in_band).float()
+
 
 def ball_apex_height_reward(
     env: ManagerBasedRLEnv,
@@ -381,11 +402,11 @@ def ball_apex_height_reward(
     env.ball_apex_height = torch.where(at_apex, ball_pos_z, env.ball_apex_height)
     env.ball_prev_vel_z = ball_vel_z.clone()
 
-    in_band = (
-        (env.ball_apex_height >= target_height - tolerance)
-        & (env.ball_apex_height <= target_height + tolerance)
+    in_band = (env.ball_apex_height >= target_height - tolerance) & (
+        env.ball_apex_height <= target_height + tolerance
     )
     return (at_apex & in_band).float()
+
 
 def ball_xy_velocity_penalty(
     env: ManagerBasedRLEnv,
@@ -425,7 +446,8 @@ def ball_xy_drift_penalty(
     spawn_pos_xy[:, 0] += dist_val
 
     drift = torch.norm(ball_pos_xy - spawn_pos_xy, dim=1)
-    return drift  
+    return drift
+
 
 def alternate_foot_reward(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Reward when the contacting foot alternates from the previous contact.
@@ -445,6 +467,7 @@ def alternate_foot_reward(env: ManagerBasedRLEnv) -> torch.Tensor:
     alternated = env.juggle_streak_buf > 0
     return alternated.float()
 
+
 def juggle_streak_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Bonus that scales quadratically with the consecutive alt-foot streak.
 
@@ -459,6 +482,7 @@ def juggle_streak_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
     streak = env.juggle_streak_buf.float()
     return streak.pow(2) * 1.5
 
+
 def termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Large negative reward on the step the episode terminates early (fall).
 
@@ -466,3 +490,19 @@ def termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
         Tensor of shape (num_envs,).
     """
     return (~env.reset_terminated).float() * 0.0 + env.reset_terminated.float() * -1.0
+
+
+def robot_xy_drift_penalty(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Penalize the robot for drifting away from its spawn origin in the XY plane."""
+    asset = env.scene[asset_cfg.name]
+
+    # Extract XY coordinates of the robot and its spawn origin
+    robot_pos_xy = asset.data.root_pos_w[:, :2]
+    env_origins_xy = env.scene.env_origins[:, :2]
+
+    # Calculate Euclidean distance (L2 norm) in the XY plane
+    drift_dist = torch.norm(robot_pos_xy - env_origins_xy, dim=-1)
+
+    return drift_dist

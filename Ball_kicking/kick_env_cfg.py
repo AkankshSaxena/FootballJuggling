@@ -1,7 +1,7 @@
 from dataclasses import MISSING
 
 import isaaclab.sim as sim_utils
-import isaaclab.envs.mdp as mdp  
+import isaaclab.envs.mdp as mdp
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
@@ -14,16 +14,18 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab_assets import H1_MINIMAL_CFG  
+from isaaclab_assets import H1_MINIMAL_CFG
 from isaaclab.sensors import ContactSensorCfg
+
 # Importing your custom kick_* modules
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
-    kick_curriculums, 
-    kick_events, 
-    kick_observations, 
-    kick_rewards, 
-    kick_terminations
+    kick_curriculums,
+    kick_events,
+    kick_observations,
+    kick_rewards,
+    kick_terminations,
 )
+
 
 @configclass
 class H1JuggleSceneCfg(InteractiveSceneCfg):
@@ -35,10 +37,10 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         physics_material=sim_utils.RigidBodyMaterialCfg(
             static_friction=1.0,
             dynamic_friction=1.0,
-            restitution=0.0,       
+            restitution=0.0,
         ),
     )
-    
+
     # Robot asset
     robot: ArticulationCfg = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # Ball asset
@@ -67,21 +69,20 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         prim_path="/World/light",
         spawn=sim_utils.DomeLightCfg(intensity=2000.0),
     )
-    
+
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*",
         history_length=3,
         track_air_time=True,
     )
 
+
 @configclass
 class H1JuggleActionsCfg:
     """Action specifications for the environment."""
+
     joint_pos = mdp.JointPositionActionCfg(
-        asset_name="robot", 
-        joint_names=[".*"], 
-        scale=0.5, 
-        use_default_offset=True
+        asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True
     )
 
 
@@ -98,7 +99,7 @@ class H1JuggleObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel)
 
         projected_gravity = ObsTerm(func=mdp.projected_gravity)
-        
+
         # Custom Ball State (routed to kick_observations)
         ball_pos_robot_frame = ObsTerm(
             func=kick_observations.ball_position_in_robot_frame,
@@ -147,7 +148,7 @@ class H1JuggleEventCfg:
         func=mdp.reset_joints_by_scale,
         mode="reset",
         params={
-            "position_range": (1.0, 1.0), # 1.0 scales default positions exactly
+            "position_range": (1.0, 1.0),  # 1.0 scales default positions exactly
             "velocity_range": (0.0, 0.0),
         },
     )
@@ -175,7 +176,7 @@ class H1JuggleRewardsCfg:
 
     # Penalties (routed to kick_rewards)
     lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.5)
-    
+
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
         weight=-0.2,
@@ -184,7 +185,7 @@ class H1JuggleRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
         },
     )
-        
+
     dof_pos_limits = RewTerm(func=kick_rewards.dof_pos_limits, weight=-0.5)
 
     leg_raise = RewTerm(
@@ -200,10 +201,12 @@ class H1JuggleRewardsCfg:
     target_impulse = RewTerm(
         func=kick_rewards.target_impulse_reward,
         params={
-            "ball_cfg": SceneEntityCfg("ball"), 
+            "ball_cfg": SceneEntityCfg("ball"),
             "target_apex_height": 1.0,
             # ADD THIS: Point the function to the correct sensor we just created
-            "foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_link")
+            "foot_sensor_cfg": SceneEntityCfg(
+                "contact_forces", body_names=".*ankle_link"
+            ),
         },
         weight=3.0,
     )
@@ -222,7 +225,7 @@ class H1JuggleRewardsCfg:
     ball_xy_velocity = RewTerm(
         func=kick_rewards.track_lin_vel_ball_xy_exp,
         params={"ball_cfg": SceneEntityCfg("ball")},
-        weight=1.0, 
+        weight=1.0,
     )
 
     ball_xy_drift = RewTerm(
@@ -231,7 +234,7 @@ class H1JuggleRewardsCfg:
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
         },
-        weight=1.0, 
+        weight=1.0,
     )
 
     base_height = RewTerm(
@@ -239,10 +242,16 @@ class H1JuggleRewardsCfg:
         weight=-2.0,
         params={"target_height": 0.98},  # H1 nominal standing height
     )
-    
+
     orientation_penalty = RewTerm(
         func=mdp.flat_orientation_l2,
         weight=-2.0,
+    )
+
+    robot_xy_drift = RewTerm(
+        func=kick_rewards.robot_xy_drift_penalty,
+        params={"asset_cfg": SceneEntityCfg("robot")},
+        weight=-2.0,  # Start with a strong penalty to anchor the robot
     )
 
 
@@ -289,8 +298,8 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.005
 
         # Fix ground penetration
-        self.sim.physx.solver_type = 1                 
-        self.sim.physx.num_position_iterations = 8    
+        self.sim.physx.solver_type = 1
+        self.sim.physx.num_position_iterations = 8
         self.sim.physx.num_velocity_iterations = 1
         self.sim.physx.bounce_threshold_velocity = 0.2
-        self.sim.physx.gpu_collision_stack_size = 2**26  
+        self.sim.physx.gpu_collision_stack_size = 2**26
