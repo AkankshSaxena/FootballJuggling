@@ -11,6 +11,7 @@ from isaaclab.managers import SceneEntityCfg
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+
 def ball_position_in_robot_frame(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
@@ -51,49 +52,11 @@ def ball_linear_velocity_in_robot_frame(
     return ball_lin_vel_b
 
 
-def ball_linear_velocity_world(
-    env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-) -> torch.Tensor:
-    """Ball linear velocity in world frame.
-
-    Returns:
-        Tensor of shape (num_envs, 3).
-    """
-    ball: RigidObject = env.scene[ball_cfg.name]
-    return ball.data.root_lin_vel_w.clone()
-
-
-def ball_height(
-    env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-) -> torch.Tensor:
-    """Ball height (z-position) in world frame.
-
-    Useful as a scalar cue for the policy to gauge juggle apex.
-
-    Returns:
-        Tensor of shape (num_envs, 1).
-    """
-    ball: RigidObject = env.scene[ball_cfg.name]
-    return ball.data.root_pos_w[:, 2].unsqueeze(-1)
-
-
-def ball_position_world(
-    env: ManagerBasedRLEnv,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-) -> torch.Tensor:
-    """Ball position in world frame (x, y, z).
-
-    Returns:
-        Tensor of shape (num_envs, 3).
-    """
-    ball: RigidObject = env.scene[ball_cfg.name]
-    return ball.data.root_pos_w.clone()
-
 def feet_position_in_robot_frame(
     env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["left_ankle_link", "right_ankle_link"]),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot", body_names=["left_ankle_link", "right_ankle_link"]
+    ),
 ) -> torch.Tensor:
     """Left and right ankle positions expressed in the robot's base frame.
 
@@ -119,19 +82,6 @@ def feet_position_in_robot_frame(
     return feet_pos_b
 
 
-def feet_height_world(
-    env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["left_ankle_link", "right_ankle_link"]),
-) -> torch.Tensor:
-    """Left and right ankle heights (z) in world frame.
-
-    Returns:
-        Tensor of shape (num_envs, 2).
-    """
-    robot: Articulation = env.scene[robot_cfg.name]
-    feet_pos_w = robot.data.body_pos_w[:, robot_cfg.body_ids, :]  # (num_envs, 2, 3)
-    return feet_pos_w[:, :, 2]  # (num_envs, 2)
-
 def last_contact_foot(env: ManagerBasedRLEnv) -> torch.Tensor:
     """One-hot encoding of the last foot to contact the ball.
 
@@ -148,18 +98,3 @@ def last_contact_foot(env: ManagerBasedRLEnv) -> torch.Tensor:
     if not hasattr(env, "last_contact_foot"):
         return torch.zeros((env.num_envs, 2), device=env.device, dtype=torch.float32)
     return env.last_contact_foot.clone()
-
-
-def juggle_streak(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Current consecutive alternate-foot juggle streak per environment.
-
-    Gives the policy a count signal for the Stage 7 streak bonus.
-    Clipped to [0, 20] and normalised to [0, 1] before returning.
-
-    Returns:
-        Tensor of shape (num_envs, 1).
-    """
-    if not hasattr(env, "juggle_streak_buf"):
-        return torch.zeros((env.num_envs, 1), device=env.device, dtype=torch.float32)
-    streak = env.juggle_streak_buf.float().unsqueeze(-1)
-    return (streak / 20.0).clamp(0.0, 1.0)
