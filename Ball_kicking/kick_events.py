@@ -44,9 +44,19 @@ def reset_ball_state(
     ball_pos[:, 1] = robot_pos[:, 1] + world_offset[:, 1]
     ball_pos[:, 2] = height_offset
 
-    # Zero out all linear and angular velocities for the ball
+    # Zero out all components for the ball
     ball_vel = torch.zeros((len(env_ids), 6), device=env.device)
+    if hasattr(env, "ball_prev_vel_z"):
+        env.ball_prev_vel_z[env_ids] = 0.0
+    if hasattr(env, "max_ball_vel_z"):
+        env.max_ball_vel_z[env_ids] = 0.0
+    if hasattr(env, "last_contact_foot"):
+        env.last_contact_foot[env_ids] = 0.0
 
     # Write the new state to the simulator
-    ball.write_root_pose_to_sim(ball_pos, env_ids=env_ids)
+    ball_quat = torch.zeros((len(env_ids), 4), device=env.device)
+    ball_quat[:, 0] = 1.0  # w=1 identity quaternion
+    ball.write_root_pose_to_sim(
+        torch.cat([ball_pos, ball_quat], dim=-1), env_ids=env_ids
+    )
     ball.write_root_velocity_to_sim(ball_vel, env_ids=env_ids)

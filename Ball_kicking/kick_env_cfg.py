@@ -4,7 +4,8 @@ import isaaclab.sim as sim_utils
 import isaaclab.envs.mdp as mdp
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
-from isaaclab.managers import CurriculumTermCfg as CurrTerm
+
+# from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -46,23 +47,26 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
     # Robot asset
     robot: ArticulationCfg = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # Ball asset
-    ball = sim_utils.SphereCfg(
+    ball: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Ball",
-        radius=0.12,  # Standard size 5 football radius
-        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-            disable_gravity=False,
-            kinematic_enabled=False,
-            linear_damping=0.1,
-            angular_damping=10.0,  # Prevents spinning
+        spawn=sim_utils.SphereCfg(
+            radius=0.12,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                disable_gravity=False,
+                kinematic_enabled=False,
+                linear_damping=0.1,
+                angular_damping=10.0,
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.43),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.9, 0.1, 0.1)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                static_friction=0.0,
+                dynamic_friction=0.0,
+                restitution=0.9,
+            ),
         ),
-        mass_props=sim_utils.MassPropertiesCfg(mass=0.43),  # 100% mass for Stage 1
-        collision_props=sim_utils.CollisionPropertiesCfg(),
-        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.9, 0.1, 0.1)),
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.0,  # Zero friction means no lateral rolling
-            dynamic_friction=0.0,
-            restitution=0.9,  # High bounce
-        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 0.3)),
     )
 
     # Lights
@@ -191,17 +195,22 @@ class H1JuggleTerminationsCfg:
 
 
 @configclass
+class H1JuggleActionsCfg:
+    joint_pos = mdp.JointPositionActionCfg(
+        asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True
+    )
+
+
+@configclass
 class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the Unitree H1 Juggle Environment."""
 
     scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=2.5)
-    actions: H1JuggleActionsCfg = (
-        MISSING  # REPLACE THIS: use your standard H1 joint position actions
-    )
     observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
     events: H1JuggleEventCfg = H1JuggleEventCfg()
     rewards: H1JuggleRewardsCfg = H1JuggleRewardsCfg()
     terminations: H1JuggleTerminationsCfg = H1JuggleTerminationsCfg()
+    actions: H1JuggleActionsCfg = H1JuggleActionsCfg()
 
     def __post_init__(self):
         self.episode_length_s = 15.0
