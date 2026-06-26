@@ -147,6 +147,18 @@ class H1JuggleEventCfg:
         params={"distance_offset": 0.5, "height_offset": 0.3},
     )
 
+    constrain_ball = EventTerm(
+        func=kick_events.constrain_ball_to_z_axis,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),  # fires every env step
+        params={
+            "ball_cfg": SceneEntityCfg("ball"),
+            "robot_cfg": SceneEntityCfg("robot"),
+            "distance_offset": 0.5,
+            "min_height": 0.3,
+        },
+    )
+
 
 @configclass
 class H1JuggleRewardsCfg:
