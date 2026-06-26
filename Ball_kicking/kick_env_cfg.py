@@ -104,7 +104,12 @@ class H1JuggleObservationsCfg:
             func=kick_observations.ball_linear_velocity_in_robot_frame
         )
         feet_position_in_robot_frame = ObsTerm(
-            func=kick_observations.feet_position_in_robot_frame
+            func=kick_observations.feet_position_in_robot_frame,
+            params={
+                "robot_cfg": SceneEntityCfg(
+                    "robot", body_names=["left_ankle_link", "right_ankle_link"]
+                )
+            },
         )
         last_contact_foot = ObsTerm(func=kick_observations.last_contact_foot)
 
@@ -138,7 +143,7 @@ class H1JuggleEventCfg:
     reset_robot_joints = EventTerm(
         func=mdp.reset_joints_by_scale,
         mode="reset",
-        params={"position_range": (0.5, 1.5), "velocity_range": (0.0, 0.0)},
+        params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
 
     reset_ball = EventTerm(
@@ -190,7 +195,10 @@ class H1JuggleRewardsCfg:
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
         weight=-0.1,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces")},
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
+        },
     )
 
     # Tracking (0 weight, logged to wandb)

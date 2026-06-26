@@ -42,7 +42,7 @@ def ball_robot_dist_penalty(
 
     penalty = torch.where(
         dist > threshold,
-        torch.exp(torch.square(dist - threshold)),
+        torch.exp(torch.square((dist / threshold) - 1)),
         torch.zeros_like(dist),
     )
     return penalty
@@ -145,12 +145,6 @@ def track_max_ball_vel_z(
 
     if not hasattr(env, "max_ball_vel_z"):
         env.max_ball_vel_z = torch.zeros(env.num_envs, device=env.device)
-
-    # Reset tracker on environment resets
-    reset_mask = env.reset_terminated | env.reset_time_outs
-    env.max_ball_vel_z = torch.where(
-        reset_mask, torch.zeros_like(env.max_ball_vel_z), env.max_ball_vel_z
-    )
 
     # Track maximum velocity
     env.max_ball_vel_z = torch.maximum(env.max_ball_vel_z, ball_vel_z)
