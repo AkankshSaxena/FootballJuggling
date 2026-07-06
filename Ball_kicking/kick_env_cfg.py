@@ -61,7 +61,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
                 restitution=0.9,
             ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 0.3)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(5.0, 0.0, 0.13)),
     )
 
     # Lights
@@ -153,8 +153,6 @@ class H1JuggleEventCfg:
         interval_range_s=(0.0, 0.0),  # fires every env step
         params={
             "ball_cfg": SceneEntityCfg("ball"),
-            "robot_cfg": SceneEntityCfg("robot"),
-            "distance_offset": 5,
             "min_height": 0.13,
         },
     )
@@ -219,7 +217,8 @@ class H1JuggleRewardsCfg:
         func=kick_rewards.track_lin_vel_xy_to_ball_exp, weight=1.0, params={"std": 0.5}
     )
 
-    ball_robot_dist = RewTerm(func=kick_rewards.ball_robot_dist_reward, weight=3.0)
+    ball_robot_dist = RewTerm(func=kick_rewards.ball_robot_dist_reward, weight=2.0)
+    dist_to_ball_raw = RewTerm(func=kick_rewards.dist_to_ball_raw, weight=0.0)
 
     feet_air_time = RewTerm(
         func=kick_rewards.feet_air_time,
@@ -233,7 +232,7 @@ class H1JuggleRewardsCfg:
 
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=6.0,
+        weight=3.0,
         params={
             "foot_sensor_cfg": SceneEntityCfg(
                 "contact_forces", body_names=".*ankle_link"
@@ -276,7 +275,7 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     actions: H1JuggleActionsCfg = H1JuggleActionsCfg()
 
     def __post_init__(self):
-        self.episode_length_s = 15.0
+        self.episode_length_s = 25.0
         self.decimation = 4
         self.sim.dt = 0.005
 

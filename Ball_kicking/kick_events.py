@@ -10,31 +10,39 @@ if TYPE_CHECKING:
 
 
 def reset_ball_state(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    env,
+    env_ids,
+    ball_cfg=SceneEntityCfg("ball"),
+    robot_cfg=SceneEntityCfg("robot"),
     distance_offset: float = 5,
     height_offset: float = 0.13,
 ):
-    # Resets and positions the ball position relative to the robot.
     ball: RigidObject = env.scene[ball_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
     robot_pos = robot.data.root_pos_w[env_ids]
     robot_quat = robot.data.root_quat_w[env_ids]
+
     local_offset = torch.zeros((len(env_ids), 3), device=env.device)
     local_offset[:, 0] = distance_offset
-
     world_offset = math_utils.quat_apply(robot_quat, local_offset)
 
-    # Set new ball position: Robot XY + Offset XY, Fixed Z
     ball_pos = torch.zeros_like(robot_pos)
     ball_pos[:, 0] = robot_pos[:, 0] + world_offset[:, 0]
     ball_pos[:, 1] = robot_pos[:, 1] + world_offset[:, 1]
     ball_pos[:, 2] = height_offset
 
-    # Zero out all components for the ball
+    # NEW: persist the world-frame anchor so it never has to be recomputed
+    if not hasattr(env, "ball_anchor_xy"):
+        env.ball_anchor_xy = torch.zeros((env.num_envs, 2), device=env.device)
+    env.ball_anchor_xy[env_ids] = ball_pos[:, :2]
+
     ball_vel = torch.zeros((len(env_ids), 6), device=env.device)
+    ball_quat = torch.zeros((len(env_ids), 4), device=env.device)
+    ball_quat[:, 0] = 1.0
+    ball.write_root_pose_to_sim(
+        torch.cat([ball_pos, ball_quat], dim=-1), env_ids=env_ids
+    )
+    ball.write_root_velocity_to_sim(ball_vel, env_ids=env_ids)
     if hasattr(env, "ball_prev_vel_z"):
         env.ball_prev_vel_z[env_ids] = 0.0
     if hasattr(env, "max_ball_vel_z"):
@@ -52,34 +60,23 @@ def reset_ball_state(
 
 
 def constrain_ball_to_z_axis(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    distance_offset: float = 5,
+    env,
+    env_ids,
+    ball_cfg=SceneEntityCfg("ball"),
     min_height: float = 0.13,
 ) -> None:
     ball: RigidObject = env.scene[ball_cfg.name]
-    robot: Articulation = env.scene[robot_cfg.name]
-
     all_ids = torch.arange(env.num_envs, device=env.device)
 
-    ball_pos = ball.data.root_pos_w.clone()  # (N, 3)
-    ball_lin_vel = ball.data.root_lin_vel_w.clone()  # (N, 3)
+    ball_pos = ball.data.root_pos_w.clone()
+    ball_lin_vel = ball.data.root_lin_vel_w.clone()
 
-    # --- Compute fixed XY anchor: 0.5m in front of robot ---
-    local_fwd = torch.zeros((env.num_envs, 3), device=env.device)
-    local_fwd[:, 0] = distance_offset
-    world_fwd = math_utils.quat_apply(robot.data.root_quat_w, local_fwd)
-    anchor_xy = robot.data.root_pos_w[:, :2] + world_fwd[:, :2]
+    if not hasattr(env, "ball_anchor_xy"):
+        env.ball_anchor_xy = ball_pos[:, :2].clone()  # fallback for first step
 
-    # --- Zero XY velocity (your request: XY kicks have no effect) ---
+    ball_pos[:, :2] = env.ball_anchor_xy
     ball_lin_vel[:, :2] = 0.0
 
-    # --- Snap XY position to anchor (prevents drift accumulation) ---
-    ball_pos[:, :2] = anchor_xy
-
-    # --- Virtual floor at min_height ---
     at_floor = ball_pos[:, 2] < min_height
     ball_pos[:, 2] = torch.clamp(ball_pos[:, 2], min=min_height)
     ball_lin_vel[:, 2] = torch.where(
@@ -88,7 +85,6 @@ def constrain_ball_to_z_axis(
         ball_lin_vel[:, 2],
     )
 
-    # --- Write back ---
     ball_quat = torch.zeros((env.num_envs, 4), device=env.device)
     ball_quat[:, 0] = 1.0
     ball.write_root_pose_to_sim(

@@ -56,6 +56,18 @@ def ball_robot_dist_reward(
     return torch.exp(-0.1 * dist_sq)
 
 
+def dist_to_ball_raw(
+    env: ManagerBasedRLEnv,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    ball: RigidObject = env.scene[ball_cfg.name]
+    robot: Articulation = env.scene[robot_cfg.name]
+    return torch.norm(
+        robot.data.root_pos_w[:, :2] - ball.data.root_pos_w[:, :2], dim=-1
+    )
+
+
 def feet_air_time(
     env: ManagerBasedRLEnv,
     command_name: str,
@@ -100,12 +112,8 @@ def ball_foot_contact_reward(
         "contact_forces", body_names=".*ankle_link"
     ),
 ) -> torch.Tensor:
-    """
-    Rewards any foot contact with the ball.
-    Tracks alternating foot history natively in the env for later stage use.
-    """
     foot_sensor: ContactSensor = env.scene[foot_sensor_cfg.name]
-    foot_forces = foot_sensor.data.net_forces_w[:, :2, :]
+    foot_forces = foot_sensor.data.net_forces_w[:, foot_sensor_cfg.body_ids, :]
     foot_force_mag = torch.norm(foot_forces, dim=-1)
 
     left_contact = foot_force_mag[:, 0] > 1.0
@@ -126,7 +134,6 @@ def ball_foot_contact_reward(
         current_contact_foot,
         env.last_contact_foot,
     )
-
     return any_contact.float()
 
 
