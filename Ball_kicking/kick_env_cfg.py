@@ -46,6 +46,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Ball",
         spawn=sim_utils.SphereCfg(
             radius=0.12,
+            activate_contact_sensors=True,  
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False,
                 kinematic_enabled=False,
@@ -71,11 +72,11 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
     )
 
     contact_forces = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/.*ankle_link",
+        prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link)",
         history_length=3,
         track_air_time=True,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball"],
     )
-
 
 @configclass
 class H1JuggleObservationsCfg:
@@ -202,9 +203,9 @@ class H1JuggleRewardsCfg:
 
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
-        weight=-0.25,
+        weight=-0.35,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_link"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
         },
     )
@@ -214,15 +215,15 @@ class H1JuggleRewardsCfg:
     )
 
     track_lin_vel_xy_to_ball = RewTerm(
-        func=kick_rewards.track_lin_vel_xy_to_ball_exp, weight=1.0, params={"std": 0.5}
+        func=kick_rewards.track_lin_vel_xy_to_ball_exp, weight=0.1, params={"std": 0.5}
     )
 
     ball_robot_dist = RewTerm(func=kick_rewards.ball_robot_dist_reward, weight=2.0)
-    dist_to_ball_raw = RewTerm(func=kick_rewards.dist_to_ball_raw, weight=0.0)
+    dist_to_ball_raw = RewTerm(func=kick_rewards.dist_to_ball_raw, weight=0.001)
 
     feet_air_time = RewTerm(
         func=kick_rewards.feet_air_time,
-        weight=-0.25,
+        weight=0.5,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces"),
             "command_name": "base_velocity",  # Matches the string arg in the function signature
@@ -233,18 +234,28 @@ class H1JuggleRewardsCfg:
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
         weight=3.0,
-        params={
-            "foot_sensor_cfg": SceneEntityCfg(
-                "contact_forces", body_names=".*ankle_link"
-            )
-        },
+        params={"foot_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_link")},
     )
 
-    ball_vel_z = RewTerm(func=kick_rewards.ball_vel_z_reward, weight=2.0)
+    ball_illegal_contact_penalty = RewTerm(
+        func=kick_rewards.ball_illegal_contact_penalty,
+        weight=-4.0,
+        params={"illegal_sensor_cfg": SceneEntityCfg(
+            "contact_forces", body_names=["pelvis", "torso_link", ".*_knee_link"]
+        )},
+    )
+    
+    ball_vel_z = RewTerm(func=kick_rewards.ball_vel_z_reward, weight=0.25)
 
     apex_height = RewTerm(func=kick_rewards.apex_height_reward, weight=1.0)
 
-    ball_vel_xy = RewTerm(func=kick_rewards.track_ball_vel_xy_exp, weight=0.5)
+    ball_vel_xy = RewTerm(func=kick_rewards.track_ball_vel_xy_exp, weight=0.001)
+    
+    debug_contact = RewTerm(
+        func=kick_rewards.debug_contact_diag,
+        weight=0.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_link")},
+    )
 
 
 @configclass

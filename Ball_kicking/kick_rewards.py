@@ -9,6 +9,8 @@ from isaaclab.sensors import ContactSensor
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+def termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
+    return env.reset_terminated.float()
 
 def track_lin_vel_xy_to_ball_exp(
     env: ManagerBasedRLEnv,
@@ -53,7 +55,7 @@ def ball_robot_dist_reward(
     dist_sq = torch.sum(
         torch.square(robot.data.root_pos_w[:, :2] - ball.data.root_pos_w[:, :2]), dim=-1
     )
-    return torch.exp(-0.1 * dist_sq)
+    return torch.exp(-0.1 * (dist_sq - 0.3**2))
 
 
 def dist_to_ball_raw(
@@ -109,25 +111,22 @@ def feet_slide(
 def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
     foot_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
-        "contact_forces", body_names=".*ankle_link"
+        "contact_forces", body_names=".*_ankle_link"
     ),
 ) -> torch.Tensor:
-    foot_sensor: ContactSensor = env.scene[foot_sensor_cfg.name]
-    foot_forces = foot_sensor.data.net_forces_w[:, foot_sensor_cfg.body_ids, :]
-    foot_force_mag = torch.norm(foot_forces, dim=-1)
+    """Rewards ball contact specifically on ankle_link (foot). Tracks alternating-foot history."""
+    sensor: ContactSensor = env.scene[foot_sensor_cfg.name]
+    ball_forces = sensor.data.force_matrix_w[:, foot_sensor_cfg.body_ids, 0, :]
+    foot_force_mag = torch.norm(ball_forces, dim=-1)
 
     left_contact = foot_force_mag[:, 0] > 1.0
     right_contact = foot_force_mag[:, 1] > 1.0
     any_contact = left_contact | right_contact
 
-    current_contact_foot = torch.stack(
-        [left_contact.float(), right_contact.float()], dim=1
-    )
+    current_contact_foot = torch.stack([left_contact.float(), right_contact.float()], dim=1)
 
     if not hasattr(env, "last_contact_foot"):
-        env.last_contact_foot = torch.zeros(
-            (env.num_envs, 2), device=env.device, dtype=torch.float32
-        )
+        env.last_contact_foot = torch.zeros((env.num_envs, 2), device=env.device, dtype=torch.float32)
 
     env.last_contact_foot = torch.where(
         any_contact.unsqueeze(-1).expand_as(current_contact_foot),
@@ -135,6 +134,19 @@ def ball_foot_contact_reward(
         env.last_contact_foot,
     )
     return any_contact.float()
+
+
+def ball_illegal_contact_penalty(
+    env: ManagerBasedRLEnv,
+    illegal_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
+        "contact_forces", body_names=["pelvis", "torso_link", ".*_knee_link"]
+    ),
+) -> torch.Tensor:
+    """Penalizes ball contact with any non-foot body."""
+    sensor: ContactSensor = env.scene[illegal_sensor_cfg.name]
+    ball_forces = sensor.data.force_matrix_w[:, illegal_sensor_cfg.body_ids, 0, :]
+    illegal_contact = (torch.norm(ball_forces, dim=-1) > 1.0).any(dim=1)
+    return illegal_contact.float()
 
 
 def ball_vel_z_reward(
@@ -189,3 +201,16 @@ def lin_vel_z_l2(
 ) -> torch.Tensor:
     robot: Articulation = env.scene[robot_cfg.name]
     return torch.square(robot.data.root_lin_vel_b[:, 2])
+
+
+def debug_contact_diag(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_link"),
+) -> torch.Tensor:
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    if "log" not in env.extras:
+        env.extras["log"] = {}
+    env.extras["log"]["debug/body_ids_count"] = float(len(sensor_cfg.body_ids))
+    env.extras["log"]["debug/force_matrix_max"] = sensor.data.force_matrix_w.abs().max().item()
+    env.extras["log"]["debug/force_matrix_mean"] = sensor.data.force_matrix_w.abs().mean().item()
+    return torch.zeros(env.num_envs, device=env.device)
