@@ -27,11 +27,11 @@ def robot_out_of_bounds(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    max_distance: float = 7.0,
+    max_distance: float = 10.0,
 ) -> torch.Tensor:
     """
     Terminates the episode if the 2D (XY) Euclidean distance between the robot
-    and the ball exceeds the allowed max_distance (e.g., 7.0m).
+    and the ball exceeds the allowed max_distance (e.g., 10.0m).
     """
     ball = env.scene[ball_cfg.name]
     robot = env.scene[robot_cfg.name]

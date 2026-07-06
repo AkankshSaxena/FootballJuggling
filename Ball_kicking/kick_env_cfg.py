@@ -1,11 +1,8 @@
-from dataclasses import MISSING
-
 import isaaclab.sim as sim_utils
 import isaaclab.envs.mdp as mdp
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
-# from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -18,9 +15,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab_assets import H1_MINIMAL_CFG
 from isaaclab.sensors import ContactSensorCfg
 
-# Importing your custom kick_* modules
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
-    kick_curriculums,
     kick_events,
     kick_observations,
     kick_rewards,
@@ -128,14 +123,14 @@ class H1JuggleEventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
-                "x": (-0.01, 0.01),
-                "y": (-0.01, 0.01),
-                "z": (-0.01, 0.01),
-                "roll": (-0.01, 0.01),
-                "pitch": (-0.01, 0.01),
-                "yaw": (-0.01, 0.01),
+                "x": (0.0, 0.0),
+                "y": (0.0, 0.0),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0.0, 0.0),
+                "yaw": (0.0, 0.0),
             },
         },
     )
@@ -149,7 +144,7 @@ class H1JuggleEventCfg:
     reset_ball = EventTerm(
         func=kick_events.reset_ball_state,
         mode="reset",
-        params={"distance_offset": 0.5, "height_offset": 0.3},
+        params={"distance_offset": 5, "height_offset": 0.13},
     )
 
     constrain_ball = EventTerm(
@@ -159,50 +154,98 @@ class H1JuggleEventCfg:
         params={
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
-            "distance_offset": 0.5,
-            "min_height": 0.3,
+            "distance_offset": 5,
+            "min_height": 0.13,
         },
     )
 
 
 @configclass
 class H1JuggleRewardsCfg:
-    """Reward configuration matching curriculum stages."""
+    """Reward configuration for H1 juggling task."""
 
-    # Juggling Penalties
-    termination_penalty = RewTerm(func=kick_rewards.termination_penalty, weight=-10.0)
-    ball_robot_dist_penalty = RewTerm(
-        func=kick_rewards.ball_robot_dist_penalty, weight=-1.0
+    termination_penalty = RewTerm(func=kick_rewards.termination_penalty, weight=-100.0)
+
+    orientation_penalty = RewTerm(func=mdp.flat_orientation_l2, weight=-1.0)
+
+    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=0.0)
+
+    dof_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=-1.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*_ankle")},
     )
 
-    # Juggling Rewards
-    gated_ball_contact = RewTerm(
-        func=kick_rewards.gated_ball_contact_reward, weight=2.0
+    joint_deviation_hip = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.2,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", joint_names=[".*_hip_yaw", ".*_hip_roll"]
+            )
+        },
     )
-    apex_height = RewTerm(func=kick_rewards.apex_height_reward, weight=2.0)
 
-    # Tracking
-    base_height = RewTerm(
-        func=mdp.base_height_l2, weight=-2.0, params={"target_height": 0.98}
+    joint_deviation_arms = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.2,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", joint_names=[".*_shoulder_.*", ".*_elbow"]
+            )
+        },
     )
-    orientation_penalty = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
-    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.0)
-    track_lin_vel_xy = RewTerm(func=kick_rewards.track_lin_vel_xy_exp, weight=1.0)
-    track_ang_vel_z = RewTerm(func=kick_rewards.track_ang_vel_z_exp, weight=1.0)
-    dof_pos_limits = RewTerm(func=kick_rewards.dof_pos_limits, weight=-1.0)
-    joint_dev_hip = RewTerm(func=kick_rewards.joint_deviation_hip, weight=-0.3)
-    joint_dev_arms = RewTerm(func=kick_rewards.joint_deviation_arms, weight=-0.3)
+
+    joint_deviation_torso = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.1,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names="torso")},
+    )
+
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
-        weight=-0.1,
+        weight=-0.25,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
         },
     )
 
-    # Tracking (0 weight, logged to wandb)
-    track_max_ball_vel_z = RewTerm(func=kick_rewards.track_max_ball_vel_z, weight=0.0)
+    track_ang_vel_z = RewTerm(
+        func=kick_rewards.track_ang_vel_z_exp, weight=1.0, params={"std": 0.5}
+    )
+
+    track_lin_vel_xy_to_ball = RewTerm(
+        func=kick_rewards.track_lin_vel_xy_to_ball_exp, weight=1.0, params={"std": 0.5}
+    )
+
+    ball_robot_dist = RewTerm(func=kick_rewards.ball_robot_dist_reward, weight=3.0)
+
+    feet_air_time = RewTerm(
+        func=kick_rewards.feet_air_time,
+        weight=-0.25,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces"),
+            "command_name": "base_velocity",  # Matches the string arg in the function signature
+            "threshold": 0.4,
+        },
+    )
+
+    ball_foot_contact = RewTerm(
+        func=kick_rewards.ball_foot_contact_reward,
+        weight=6.0,
+        params={
+            "foot_sensor_cfg": SceneEntityCfg(
+                "contact_forces", body_names=".*ankle_link"
+            )
+        },
+    )
+
+    ball_vel_z = RewTerm(func=kick_rewards.ball_vel_z_reward, weight=2.0)
+
+    apex_height = RewTerm(func=kick_rewards.apex_height_reward, weight=1.0)
+
+    ball_vel_xy = RewTerm(func=kick_rewards.track_ball_vel_xy_exp, weight=0.5)
 
 
 @configclass
@@ -225,7 +268,7 @@ class H1JuggleActionsCfg:
 class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the Unitree H1 Juggle Environment."""
 
-    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=10)
     observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
     events: H1JuggleEventCfg = H1JuggleEventCfg()
     rewards: H1JuggleRewardsCfg = H1JuggleRewardsCfg()
