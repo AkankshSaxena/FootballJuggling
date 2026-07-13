@@ -59,10 +59,10 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
             physics_material=sim_utils.RigidBodyMaterialCfg(
                 static_friction=0.0,
                 dynamic_friction=0.0,
-                restitution=0.9,
+                restitution=0.8,
             ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(5.0, 0.0, 0.13)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(5.0, 0.0, 0.3)),
     )
 
     # Lights
@@ -71,14 +71,55 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0),
     )
 
+    # General ground/self contact sensing (feet_slide, feet_air_time).
+    # This one does NOT use filter_prim_paths_expr, so the multi-body regex
+    # prim_path is fine here - the PhysX filter-pair reliability issue is
+    # specific to filtered sensors below.
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link)",
         history_length=3,
         track_air_time=True,
     )
 
-    ball_contact_forces = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link)",
+    # --- Ball-filtered contact sensors ---------------------------------
+    # Split into one sensor per body (single prim_path each). PhysX contact
+    # filter pairs (filter_prim_paths_expr) were not reliably registering
+    # when prim_path was a multi-body regex covering all 7 links in one
+    # sensor - force_matrix_w_history read back all zero despite visible
+    # contact in video. One sensor per body is the config PhysX honors.
+
+    left_ankle_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/left_ankle_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    right_ankle_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/right_ankle_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    pelvis_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/pelvis",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    torso_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    left_knee_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/left_knee_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    right_knee_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/right_knee_link",
         history_length=3,
         track_air_time=False,
         filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
@@ -152,7 +193,7 @@ class H1JuggleEventCfg:
     reset_ball = EventTerm(
         func=kick_events.reset_ball_state,
         mode="reset",
-        params={"distance_offset": 5, "height_offset": 0.13},
+        params={"distance_offset": 5.0, "height_offset": 0.3},
     )
 
     constrain_ball = EventTerm(
@@ -161,7 +202,7 @@ class H1JuggleEventCfg:
         interval_range_s=(0.0, 0.0),  # fires every env step
         params={
             "ball_cfg": SceneEntityCfg("ball"),
-            "min_height": 0.13,
+            "min_height": 0.3,
         },
     )
 
@@ -173,8 +214,7 @@ class H1JuggleRewardsCfg:
     termination_penalty = RewTerm(func=kick_rewards.termination_penalty, weight=-100.0)
 
     orientation_penalty = RewTerm(func=mdp.flat_orientation_l2, weight=-1.0)
-
-    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=0.0)
+    lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.5)
 
     dof_pos_limits = RewTerm(
         func=mdp.joint_pos_limits,
@@ -225,45 +265,60 @@ class H1JuggleRewardsCfg:
         func=kick_rewards.track_lin_vel_xy_to_ball_exp, weight=0.01, params={"std": 0.5}
     )
 
-    ball_robot_dist = RewTerm(func=kick_rewards.ball_robot_dist_reward, weight=0.3)
-    dist_to_ball_raw = RewTerm(func=kick_rewards.dist_to_ball_raw, weight=0.0001)
+    ball_robot_dist = RewTerm(
+        func=kick_rewards.ball_robot_dist_reward,
+        weight=0.3,
+        params={"kick_range": 0.4, "std": 0.3},
+    )
 
+    # FIXED (6.1): removed stray "command_name" param - old feet_air_time
+    # signature had it, new single-stance-gated signature (env, sensor_cfg,
+    # threshold) does not. Left unmatched, this raises TypeError at launch.
     feet_air_time = RewTerm(
         func=kick_rewards.feet_air_time,
         weight=2.0,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces"),
-            "command_name": "base_velocity",  # Matches the string arg in the function signature
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_link"),
             "threshold": 0.4,
         },
     )
 
+    # CHANGED: now points at two single-body filtered sensors instead of one
+    # multi-body "ball_contact_forces" sensor with body_names sub-selection.
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
         weight=3.0,
         params={
-            "foot_sensor_cfg": SceneEntityCfg(
-                "ball_contact_forces", body_names=".*_ankle_link"
-            )
+            "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
+            "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
+            "force_threshold": 0.1,
+            "min_ball_vel_z": 1.0,
         },
     )
 
+    # CHANGED: now takes a list of single-body filtered sensors (pelvis,
+    # torso, both knees) instead of one sensor with body_names sub-selection.
     ball_illegal_contact_penalty = RewTerm(
         func=kick_rewards.ball_illegal_contact_penalty,
         weight=-5.0,
         params={
-            "illegal_sensor_cfg": SceneEntityCfg(
-                "ball_contact_forces",
-                body_names=["pelvis", "torso_link", ".*_knee_link"],
-            )
+            "illegal_sensor_cfgs": [
+                SceneEntityCfg("pelvis_ball_contact"),
+                SceneEntityCfg("torso_ball_contact"),
+                SceneEntityCfg("left_knee_ball_contact"),
+                SceneEntityCfg("right_knee_ball_contact"),
+            ],
+            "force_threshold": 0.1,
         },
     )
 
-    ball_vel_z = RewTerm(func=kick_rewards.ball_vel_z_reward, weight=0.25)
+    # COMMENTED OUT (6.4.2): kick_rewards.ball_vel_z_reward is commented out
+    # in kick_rewards.py (direction-blind, replaced by the min_ball_vel_z
+    # gate inside ball_foot_contact_reward). Leaving this RewTerm active
+    # would raise AttributeError at launch.
+    # ball_vel_z = RewTerm(func=kick_rewards.ball_vel_z_reward, weight=0.25)
 
     apex_height = RewTerm(func=kick_rewards.apex_height_reward, weight=1.0)
-
-    ball_vel_xy = RewTerm(func=kick_rewards.track_ball_vel_xy_exp, weight=0.001)
 
     foot_front_height = RewTerm(
         func=kick_rewards.foot_front_height_reward,
