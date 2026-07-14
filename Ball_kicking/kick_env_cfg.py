@@ -22,10 +22,15 @@ from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
     kick_terminations,
 )
 
+# Single source of truth for the swing clock. Used by BOTH the swing_phase
+# observation and the foot_trajectory_swing reward. Never edit one without
+# the other -- that is why it lives here as one constant.
+SWING_PERIOD = 1.0
+
 
 @configclass
 class H1JuggleSceneCfg(InteractiveSceneCfg):
-    """Configuration for the stage 1 juggling scene."""
+    """Scene: robot, ball, ground, contact sensors."""
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -39,9 +44,10 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    # Robot asset
     robot: ArticulationCfg = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-    # Ball asset
+
+    # Ball. mass 0.43 here; locked constant is 0.45 -- reconcile before Stage 3
+    # (final-mass ball). Stage 0/1 keep it Z-constrained so mass barely matters.
     ball: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Ball",
         spawn=sim_utils.SphereCfg(
@@ -62,32 +68,25 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
                 restitution=0.8,
             ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(5.0, 0.0, 0.3)),
+        # STAGE 0: parked overhead, out of the way (reset event re-parks it too).
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 3.0)),
     )
 
-    # Lights
     light = AssetBaseCfg(
         prim_path="/World/light",
         spawn=sim_utils.DomeLightCfg(intensity=2000.0),
     )
 
-    # General ground/self contact sensing (feet_slide, feet_air_time).
-    # This one does NOT use filter_prim_paths_expr, so the multi-body regex
-    # prim_path is fine here - the PhysX filter-pair reliability issue is
-    # specific to filtered sensors below.
+    # Ground/self contact (feet_slide, one_foot_ground_contact). No filter -> the
+    # multi-body regex prim_path is fine here.
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link)",
         history_length=3,
         track_air_time=True,
     )
 
-    # --- Ball-filtered contact sensors ---------------------------------
-    # Split into one sensor per body (single prim_path each). PhysX contact
-    # filter pairs (filter_prim_paths_expr) were not reliably registering
-    # when prim_path was a multi-body regex covering all 7 links in one
-    # sensor - force_matrix_w_history read back all zero despite visible
-    # contact in video. One sensor per body is the config PhysX honors.
-
+    # Ball-filtered sensors: ONE per body (PhysX filter pairs unreliable on a
+    # multi-body regex prim_path -> force_matrix_w read all zero). Do not merge.
     left_ankle_ball_contact = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_ankle_link",
         history_length=3,
@@ -128,19 +127,16 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class H1JuggleObservationsCfg:
-    """Observation specifications for the policy."""
+    """Policy observations."""
 
     @configclass
     class PolicyCfg(ObsGroup):
-        # Robot state (using standard mdp imports instead of lambdas)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
         joint_pos = ObsTerm(func=mdp.joint_pos)
         joint_vel = ObsTerm(func=mdp.joint_vel)
-
         projected_gravity = ObsTerm(func=mdp.projected_gravity)
 
-        # Custom Ball State (routed to kick_observations)
         ball_pos_robot_frame = ObsTerm(
             func=kick_observations.ball_position_in_robot_frame
         )
@@ -155,10 +151,25 @@ class H1JuggleObservationsCfg:
                 )
             },
         )
+        knees_position_in_robot_frame = ObsTerm(  # optional (redundant w/ joint_pos)
+            func=kick_observations.knees_position_in_robot_frame,
+            params={
+                "robot_cfg": SceneEntityCfg(
+                    "robot", body_names=["left_knee_link", "right_knee_link"]
+                )
+            },
+        )
+        # REQUIRED for foot_trajectory_swing -- without it the swing target is
+        # unobservable and unlearnable.
+        swing_phase = ObsTerm(
+            func=kick_observations.swing_phase, params={"period": SWING_PERIOD}
+        )
         last_contact_foot = ObsTerm(func=kick_observations.last_contact_foot)
 
         def __post_init__(self):
-            self.enable_corruption = False
+            self.enable_corruption = (
+                False  # if enabled for Stage 3, exclude swing_phase
+            )
             self.concatenate_terms = True
 
     policy: PolicyCfg = PolicyCfg()
@@ -166,7 +177,8 @@ class H1JuggleObservationsCfg:
 
 @configclass
 class H1JuggleEventCfg:
-    """Configuration for events."""
+    """Events. reset_* run in declaration order -> robot reset BEFORE ball,
+    since reset_ball reads the robot pose to place the ball."""
 
     reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -190,30 +202,35 @@ class H1JuggleEventCfg:
         params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
 
+    # STAGE 0: park overhead (0 forward, 3 up). STAGE 1: distance_offset=0.5-1.0,
+    # height_offset=0.3. STAGE 2+: reduce further / randomize.
     reset_ball = EventTerm(
         func=kick_events.reset_ball_state,
         mode="reset",
-        params={"distance_offset": 5.0, "height_offset": 0.3},
+        params={"distance_offset": 0.0, "height_offset": 3.0},
     )
 
+    # STAGE 0/1: min_height parks/pins the ball on Z. STAGE 2: DISABLE this whole
+    # term so the ball flies on contact.
     constrain_ball = EventTerm(
         func=kick_events.constrain_ball_to_z_axis,
         mode="interval",
-        interval_range_s=(0.0, 0.0),  # fires every env step
-        params={
-            "ball_cfg": SceneEntityCfg("ball"),
-            "min_height": 0.3,
-        },
+        interval_range_s=(0.0, 0.0),  # every env step
+        params={"ball_cfg": SceneEntityCfg("ball"), "min_height": 3.0},
     )
 
 
 @configclass
 class H1JuggleRewardsCfg:
-    """Reward configuration for H1 juggling task."""
+    """All terms present for every stage; weights set for STAGE 0.
+    Per-stage weight changes noted inline."""
 
+    # ---------------- REGULARIZATION ----------------
     termination_penalty = RewTerm(func=kick_rewards.termination_penalty, weight=-100.0)
-
     orientation_penalty = RewTerm(func=mdp.flat_orientation_l2, weight=-1.0)
+    action_rate_l2 = RewTerm(
+        func=mdp.action_rate_l2, weight=-0.01
+    )  # essential, all stages
     lin_vel_z_l2 = RewTerm(func=kick_rewards.lin_vel_z_l2, weight=-1.5)
 
     dof_pos_limits = RewTerm(
@@ -221,7 +238,6 @@ class H1JuggleRewardsCfg:
         weight=-1.0,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*_ankle")},
     )
-
     joint_deviation_hip = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-0.2,
@@ -231,7 +247,6 @@ class H1JuggleRewardsCfg:
             )
         },
     )
-
     joint_deviation_arms = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-0.2,
@@ -241,13 +256,11 @@ class H1JuggleRewardsCfg:
             )
         },
     )
-
     joint_deviation_torso = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-0.1,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names="torso")},
     )
-
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
         weight=-0.35,
@@ -256,38 +269,50 @@ class H1JuggleRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
         },
     )
-
     track_ang_vel_z = RewTerm(
         func=kick_rewards.track_ang_vel_z_exp, weight=1.0, params={"std": 0.5}
     )
-
-    track_lin_vel_xy_to_ball = RewTerm(
-        func=kick_rewards.track_lin_vel_xy_to_ball_exp, weight=0.01, params={"std": 0.5}
+    # Zero-target: rewards standing still, NOT closing distance to ball.
+    track_lin_vel_xy = RewTerm(
+        func=kick_rewards.track_lin_vel_xy_exp, weight=1.0, params={"std": 0.5}
     )
 
+    # ---------------- STABILITY ----------------
+    # STAGE 0: weight 0 (ball overhead, meaningless). STAGE 1: weight 0.3, std 0.3.
     ball_robot_dist = RewTerm(
         func=kick_rewards.ball_robot_dist_reward,
-        weight=0.3,
+        weight=0.0,
         params={"kick_range": 0.4, "std": 0.3},
     )
-
-    # FIXED (6.1): removed stray "command_name" param - old feet_air_time
-    # signature had it, new single-stance-gated signature (env, sensor_cfg,
-    # threshold) does not. Left unmatched, this raises TypeError at launch.
-    feet_air_time = RewTerm(
-        func=kick_rewards.feet_air_time,
-        weight=2.0,
+    one_foot_ground_contact = RewTerm(
+        func=kick_rewards.one_foot_ground_contact,
+        weight=0.5,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_link"),
-            "threshold": 0.4,
+            "force_threshold": 1.0,
+        },
+    )
+    # STAGE 0 objective. base_z is a GUESS -- read track/right_ankle_link_z with
+    # this at weight 0 for one pass, then set base_z to that value. ANNEAL toward
+    # 0 as ball_foot_contact rises in Stage 1 (do not hard-cut).
+    foot_trajectory_swing = RewTerm(
+        func=kick_rewards.foot_trajectory_swing,
+        weight=4.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=["right_ankle_link"]),
+            "period": SWING_PERIOD,
+            "reach_x": 0.30,
+            "lift_z": 0.30,
+            "base_z": -0.90,
+            "std": 0.15,
         },
     )
 
-    # CHANGED: now points at two single-body filtered sensors instead of one
-    # multi-body "ball_contact_forces" sensor with body_names sub-selection.
+    # ---------------- JUGGLING (all 0 in STAGE 0) ----------------
+    # STAGE 1: turn on ball_foot_contact + illegal penalty. STAGE 2: apex_height.
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=3.0,
+        weight=0.0,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
@@ -295,12 +320,9 @@ class H1JuggleRewardsCfg:
             "min_ball_vel_z": 1.0,
         },
     )
-
-    # CHANGED: now takes a list of single-body filtered sensors (pelvis,
-    # torso, both knees) instead of one sensor with body_names sub-selection.
     ball_illegal_contact_penalty = RewTerm(
         func=kick_rewards.ball_illegal_contact_penalty,
-        weight=-5.0,
+        weight=0.0,
         params={
             "illegal_sensor_cfgs": [
                 SceneEntityCfg("pelvis_ball_contact"),
@@ -311,35 +333,24 @@ class H1JuggleRewardsCfg:
             "force_threshold": 0.1,
         },
     )
+    apex_height = RewTerm(
+        func=kick_rewards.apex_height_reward,
+        weight=0.0,
+        params={"apex_min": 0.8, "apex_max": 1.6},  # locked-constant band
+    )
 
-    # COMMENTED OUT (6.4.2): kick_rewards.ball_vel_z_reward is commented out
-    # in kick_rewards.py (direction-blind, replaced by the min_ball_vel_z
-    # gate inside ball_foot_contact_reward). Leaving this RewTerm active
-    # would raise AttributeError at launch.
-    # ball_vel_z = RewTerm(func=kick_rewards.ball_vel_z_reward, weight=0.25)
-
-    apex_height = RewTerm(func=kick_rewards.apex_height_reward, weight=1.0)
-
-    foot_front_height = RewTerm(
-        func=kick_rewards.foot_front_height_reward,
-        params={
-            "asset_cfg": SceneEntityCfg(
-                "robot", body_names=["left_ankle_link", "right_ankle_link"]
-            ),
-            "leg_length": [0.9, 1.2],  # Min and Max length bounds
-            "leg_angle": [15.0, 45.0],  # Min and Max angle bounds in degrees
-            "dropoff_factor": 4.0,
-        },
-        weight=0.3,
+    # ---------------- DEBUG / LOGGING (weight 0 always) ----------------
+    log_tracking = RewTerm(func=kick_rewards.log_tracking, weight=0.0)
+    log_termination_causes = RewTerm(
+        func=kick_rewards.log_termination_causes, weight=0.0
     )
 
 
 @configclass
 class H1JuggleTerminationsCfg:
-    """Termination criteria."""
-
     time_out = DoneTerm(func=kick_terminations.time_out, time_out=True)
     robot_falls = DoneTerm(func=kick_terminations.torso_height_below)
+    # max_distance vs env_spacing mismatch -- see note; lower to ~3.0 before ball flies.
     robot_out_of_bounds = DoneTerm(func=kick_terminations.robot_out_of_bounds)
 
 
@@ -352,9 +363,9 @@ class H1JuggleActionsCfg:
 
 @configclass
 class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the Unitree H1 Juggle Environment."""
+    """Unitree H1 Juggle Environment (configured for STAGE 0)."""
 
-    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=10)
+    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=2.0)
     observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
     events: H1JuggleEventCfg = H1JuggleEventCfg()
     rewards: H1JuggleRewardsCfg = H1JuggleRewardsCfg()
@@ -366,7 +377,10 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
         self.decimation = 4
         self.sim.dt = 0.005
 
-        # Fix ground penetration
+        # Swing clock -> read by swing_phase obs (getattr fallback). Ties obs and
+        # reward to ONE number.
+        self.swing_period = SWING_PERIOD
+
         self.sim.physx.solver_type = 1
         self.sim.physx.num_position_iterations = 8
         self.sim.physx.num_velocity_iterations = 1
