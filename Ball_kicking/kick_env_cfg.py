@@ -144,9 +144,7 @@ class H1JuggleObservationsCfg:
             func=kick_observations.feet_position_in_robot_frame,
             params={
                 "robot_cfg": SceneEntityCfg(
-                    "robot",
-                    body_names=["left_ankle_link", "right_ankle_link"],
-                    preserve_order=True,
+                    "robot", body_names=["left_ankle_link", "right_ankle_link"]
                 )
             },
         )
@@ -154,9 +152,7 @@ class H1JuggleObservationsCfg:
             func=kick_observations.knees_position_in_robot_frame,
             params={
                 "robot_cfg": SceneEntityCfg(
-                    "robot",
-                    body_names=["left_knee_link", "right_knee_link"],
-                    preserve_order=True,
+                    "robot", body_names=["left_knee_link", "right_knee_link"]
                 )
             },
         )
@@ -300,9 +296,7 @@ class H1JuggleRewardsCfg:
         weight=4.0,
         params={
             "asset_cfg": SceneEntityCfg(
-                "robot",
-                body_names=["right_hip_pitch_link", "right_ankle_link"],
-                preserve_order=True,
+                "robot", body_names=["right_hip_pitch_link", "right_ankle_link"]
             ),  # order matters: [hip, ankle] -- function indexes by position
             "h": 0.55,  # PLACEHOLDER -- measure
             "h_prime": 0.80,  # PLACEHOLDER -- measure

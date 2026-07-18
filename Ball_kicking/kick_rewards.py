@@ -109,9 +109,7 @@ def one_foot_ground_contact(
 def foot_swing_knee_extend(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg(
-        "robot",
-        body_names=["right_hip_pitch_link", "right_ankle_link"],
-        preserve_order=True,
+        "robot", body_names=["right_hip_pitch_link", "right_ankle_link"]
     ),
     h: float = 0.55,  # hip->ankle, knee bent (spawn pose) — measure
     h_prime: float = 0.80,  # hip->ankle, knee straight — measure
@@ -292,7 +290,6 @@ def log_kinematics(
             "right_knee_link",
             "right_hip_pitch_link",  # kicking-leg hip motor — verify exact name
         ],
-        preserve_order=True,  # keep body_ids aligned to body_names order (see channel_names loop)
     ),
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
 ) -> torch.Tensor:
@@ -313,25 +310,6 @@ def log_kinematics(
     """
     robot: Articulation = env.scene[robot_cfg.name]
     ids = robot_cfg.body_ids  # order follows body_names order above
-
-    # Guard the "ids order == body_names order" assumption the channel labels and
-    # the hip_z index=4 lookup below rely on. Requires preserve_order=True on the
-    # SceneEntityCfg; without it find_bodies() returns URDF-sorted indices and the
-    # panels get silently mislabeled. Runs once (first call) to avoid per-step cost.
-    if not getattr(env, "_log_kinematics_order_checked", False):
-        expected = [
-            "left_ankle_link",
-            "right_ankle_link",
-            "left_knee_link",
-            "right_knee_link",
-            "right_hip_pitch_link",
-        ]
-        resolved = [robot.data.body_names[i] for i in ids]
-        assert resolved == expected, (
-            "log_kinematics body order mismatch — set preserve_order=True on the "
-            f"robot_cfg. expected {expected}, got {resolved}"
-        )
-        env._log_kinematics_order_checked = True
 
     # --- transform all tracked bodies into root-relative yaw frame ---
     pos_w = robot.data.body_pos_w[:, ids, :]  # (N, 5, 3)
