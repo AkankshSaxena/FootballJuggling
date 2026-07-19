@@ -45,7 +45,9 @@ def ball_linear_velocity_in_robot_frame(
 def feet_position_in_robot_frame(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
-        "robot", body_names=["left_ankle_link", "right_ankle_link"]
+        "robot",
+        body_names=["left_ankle_link", "right_ankle_link"],
+        preserve_order=True,
     ),
 ) -> torch.Tensor:
     """Ankle positions in base frame, concatenated [left(3), right(3)]. (num_envs, 6)."""
@@ -63,7 +65,9 @@ def feet_position_in_robot_frame(
 def knees_position_in_robot_frame(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
-        "robot", body_names=["left_knee_link", "right_knee_link"]
+        "robot",
+        body_names=["left_knee_link", "right_knee_link"],
+        preserve_order=True,
     ),
 ) -> torch.Tensor:
     """Knee positions in base frame [left(3), right(3)]. (num_envs, 6). Optional — redundant with joint_pos."""

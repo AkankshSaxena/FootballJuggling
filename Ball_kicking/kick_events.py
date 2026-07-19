@@ -14,8 +14,8 @@ def reset_ball_state(
     env_ids,
     ball_cfg=SceneEntityCfg("ball"),
     robot_cfg=SceneEntityCfg("robot"),
-    distance_offset: float = 0.0,
-    height_offset: float = 3.0,
+    distance_offset: float = 0.2,
+    height_offset: float = 0.3,
 ):
     ball: RigidObject = env.scene[ball_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
@@ -63,7 +63,7 @@ def constrain_ball_to_z_axis(
     env,
     env_ids,
     ball_cfg=SceneEntityCfg("ball"),
-    min_height: float = 3.0,
+    min_height: float = 0.3,
 ) -> None:
     ball: RigidObject = env.scene[ball_cfg.name]
     all_ids = torch.arange(env.num_envs, device=env.device)
