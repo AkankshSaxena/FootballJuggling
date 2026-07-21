@@ -256,8 +256,8 @@ def ball_illegal_contact_penalty(
 def apex_height_reward(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-    apex_min: float = 0.8,
-    apex_max: float = 1.6,
+    apex_min: float = 0.5,
+    apex_max: float = 2.0,
 ) -> torch.Tensor:
     """Fire once per flight at the Z-velocity sign flip if apex is within band."""
     ball: RigidObject = env.scene[ball_cfg.name]
