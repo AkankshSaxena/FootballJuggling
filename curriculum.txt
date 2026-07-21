@@ -1,99 +1,160 @@
-Stage 1.1 — Stabilize + Walk to Ball Contact
-Environment:
-    Ball spawned 0.5-1m in front of robot, height = 0.3m (H_F, locked constant).
-    Ball Z-axis constrained via per-step event clamp (zero XY vel + position snap to anchor).
-    No kick objective yet — goal is stable locomotion up to first foot-ball contact.
-Rewards:
-    termination_penalty - when robot falls
-    orientation_penalty (flat_orientation_l2) - penalize tilt
-    lin_vel_z_l2 - shud be ~0
-    dof_pos_limits - ankle joint limits
-    joint_deviation_hip - same as for walking
-    joint_deviation_arms - same as for walking
-    joint_deviation_torso - same as for walking
-    feet_slide - penalize foot sliding while in contact with ground
-    track_ang_vel_z_exp - penalize yaw drift
-    track_lin_vel_xy_to_ball_exp - reward velocity that closes the gap to ball in 0.5s
-    ball_robot_dist (exp shaping) - low weight, near-flat gradient over range, kept small on purpose
-    dist_to_ball_raw - linear distance penalty (NOTE: currently unnegated with positive weight — must flip sign, rewards moving away from ball as-is)
-    feet_air_time - reward only air time between 0.2-0.5s (NOTE: needs single_support gate to block double-hop hacking)
-    foot_front_height_reward - reward foot positioned in front of base at kick-ready height/angle
-    ball_foot_contact - small weight, first-contact discovery only
-    ball_illegal_contact_penalty - pelvis/torso/knee touching ball
-    ball_vel_z / apex_height / ball_vel_xy - weight 0.0 (ball is Z-constrained, no flight yet)
-Transition gate:
-    success rate - 90% in 100 iterations
-    success metrics -
-    - consistent foot-ball contact achieved, no falls
-    - orientation/torso height stay in bounds for full episode
-    - episodes terminate due to time (25s, per H1JuggleEnvCfg.episode_length_s)
-Terminations:
-    robot falls - torso <0.3
-    episode length - run time < 25s
-    robot_out_of_bounds - robot-ball XY distance > 10m
+# Training Curriculum
 
-Stage 1.2 — Natural Kick Discovery
-Environment:
-    Ball spawn distance fixed to 0.5-1m (replaces current 5m placeholder in reset_ball_state — confirmed open bug).
-    Height 0.3m (H_F), still Z-axis constrained.
-    No prescribed impulse/kick shape — reward contact and let policy discover the kicking motion naturally.
-Rewards:
-    Same set as Stage 1.1, plus:
-    ball_foot_contact - weight increased vs. 1.1
-    ball_vel_z_reward - reward any upward impulse generated on contact (ball still Z-constrained, so this only shapes vertical response, not drift)
-    ball_illegal_contact_penalty - unchanged
-Transition gate:
-    success rate - 90% in 100 iterations
-    success metrics -
-    - >=15 legal ball_foot_contact events per episode
-    - ball_illegal_contact_penalty ~0
-    - episodes terminate due to time (25s)
-Terminations:
-    robot falls - torso <0.3
-    episode length - run time < 25s
-    robot_out_of_bounds - robot-ball XY distance > 10m
+## Stage 1 — Stabilize + Swinging
 
-Stage 2 — Balloon Ball, Free Vertical Kick
-Environment:
-    Z-axis constraint removed (constrain_ball_to_z_axis event disabled) — ball free to fly on contact.
-    Ball given balloon-like properties (reduced effective mass / higher drag) as an intermediate step before the final 0.45kg ball.
-    Locked physics constants apply: M_B = 0.45kg (final target), apex target height = 1.2m ± 0.4m (band 0.8-1.6m), H_F = 0.3m, g = 9.81.
-Rewards:
-    Full Stage 1.2 set, plus:
-    ball_vel_z_reward - shape upward launch velocity
-    apex_height_reward - reward apex within 0.8-1.6m band (NOTE: current code still bands 1.5-2.5m — must be re-banded to match locked constant before this stage is valid)
-    ball_vel_xy (track_ball_vel_xy_exp) - penalize horizontal drift now that Z-constraint is off
-Transition gate:
-    success rate - 90% in 100 iterations
-    success metrics -
-    - >=10 legal contacts per episode
-    - apex height within 0.8-1.6m band
-    - ball_vel_xy drift near-zero
-    - episodes terminate due to time (25s)
-Terminations:
-    robot falls - torso <0.3
-    episode length - run time < 25s
-    robot_out_of_bounds - robot-ball XY distance > 10m
-    ball_ground_contact + delay (2s) - to be added, not yet implemented
+**Environment**
+- Ball parked 3 m above the robot's head (no contact).
 
-Stage 3 — Domain Randomization for Deployment
-Environment:
-    Balloon properties removed — full 0.45kg ball.
-    Randomized ball spawn distance/angle/height within trained bands.
-    Randomized ground friction/restitution.
-    Randomized initial robot pose perturbations, sensor/actuator noise for sim-to-real robustness.
-Rewards:
-    Same full set as Stage 2; weights re-tuned/annealed per randomization difficulty.
-    Alternate-foot bonus (optional) - reintroduce only if multi-contact juggling behavior is targeted beyond single-kick reliability.
-Transition gate:
-    success rate - 80% in 100 iterations, across randomized conditions
-    success metrics -
-    - >=2 legal contacts per episode
-    - apex height within band
-    - illegal contact penalty ~0
-    - episodes terminate due to time (25s)
-Terminations:
-    robot falls - torso <0.3
-    episode length - run time < 25s
-    robot_out_of_bounds - robot-ball XY distance > 10m
-    ball_ground_contact + delay (2s)
+**Rewards**
+
+| Idx | Name                           | Weight  |
+|-----|--------------------------------|---------|
+| 0   | termination_penalty            | -100.0  |
+| 1   | orientation_penalty            | -1.0    |
+| 2   | action_rate_l2                 | -0.01   |
+| 3   | lin_vel_z_l2                   | -1.5    |
+| 4   | dof_pos_limits                 | -1.0    |
+| 5   | joint_deviation_hip            | -0.2    |
+| 6   | joint_deviation_arms           | -0.05   |
+| 7   | joint_deviation_torso          | -0.1    |
+| 8   | feet_slide                     | -0.35   |
+| 9   | track_ang_vel_z                | 1.0     |
+| 10  | track_lin_vel_xy               | 1.0     |
+| 11  | ball_robot_dist                | 0.3     |
+| 12  | one_foot_ground_contact        | 0.5     |
+| 13  | foot_swing_knee_extend         | 4.0     |
+| 14  | ball_foot_contact              | 2.0     |
+| 15  | ball_illegal_contact_penalty   | -4.0    |
+| 16  | apex_height                    | 2.0     |
+| 17  | log_kinematics                 | 1.0     |
+| 18  | ball_xy_force_penalty          | 0.0     |                                             
+| 19  | track_ball_vel_xy_exp          | 0.0     |                                             
+| 20  | track_ball_pos_xy_exp          | 0.0     |                                             
+| 21  | alternate_foot_bonus           | 0.0     |
+
+**Transition gate** — 98% over 100 iters:
+- Clean swing, no falls.
+- Orientation / torso in bounds.
+- Timeout termination.
+
+**Terminations** — torso < 0.3 · timeout 25 s · robot-ball XY > 3 m.
+
+---
+
+## Stage 2 — Swing with Ball Contact (Z-constrained rail)
+
+**Environment**
+- Ball on the foot arc, placed so the foot passes under it 
+- Z-constraint on.
+
+**Rewards** 
+
+| Idx | Name                           | Weight        | Note                              |
+|-----|--------------------------------|---------------|-----------------------------------|
+| 0   | termination_penalty            | -100.0        |                                   |
+| 1   | orientation_penalty            | -1.0          |                                   |
+| 2   | action_rate_l2                 | -0.01         |                                   |
+| 3   | lin_vel_z_l2                   | -1.5          |                                   |
+| 4   | dof_pos_limits                 | -1.0          |                                   |
+| 5   | joint_deviation_hip            | -0.2          |                                   |
+| 6   | joint_deviation_arms           | -0.05         |                                   |
+| 7   | joint_deviation_torso          | -0.1          |                                   |
+| 8   | feet_slide                     | -0.35         |                                   |
+| 9   | track_ang_vel_z                | 1.0           |                                   |
+| 10  | track_lin_vel_xy               | 1.0           |                                   |
+| 11  | ball_robot_dist                | 0.15          | kick_range 0 → 0.3                |
+| 12  | one_foot_ground_contact        | 0.5           |                                   |
+| 13  | foot_swing_knee_extend         | 4.0 → ~2.0    | anneal within stage               |
+| 14  | ball_foot_contact              | 2.0           | min_ball_vel_z 1.0 → ~2.1         |
+| 15  | ball_illegal_contact_penalty   | -4.0          |                                   |
+| 16  | apex_height                    | 2.0           | band 0.5 – 2.0                    |
+| 17  | log_kinematics                 | 1.0           |                                   |
+| 18  | ball_xy_force_penalty          | -1.0          |                                   |
+
+**Transition gate** — 90% over 100 iters:
+- >5 kicks/episode.
+- apex_height firing in-band (0.5–2.0) consistently 
+- ball_xy_force_penalty ≈ 0 
+- No falls, orientation in bounds, timeout termination.
+
+**Terminations** — torso < 0.3 · timeout 25 s · robot-ball XY > 3 m 
+
+---
+
+## Stage 3 — Balloon Ball, Free Vertical Kick (delta from Stage 2)
+
+**Environment**
+- `constrain_ball_to_z_axis` disabled.
+- Balloon mass/drag. Locked band applies.
+
+**Rewards** (▲ = changed / added vs Stage 2)
+
+| Idx | Name                           | Weight        | Note                                            |
+|-----|--------------------------------|---------------|-------------------------------------------------|
+| 0   | termination_penalty            | -100.0        |                                                 |
+| 1   | orientation_penalty            | -1.0          |                                                 |
+| 2   | action_rate_l2                 | -0.01         |                                                 |
+| 3   | lin_vel_z_l2                   | -1.5          |                                                 |
+| 4   | dof_pos_limits                 | -1.0          |                                                 |
+| 5   | joint_deviation_hip            | -0.2          |                                                 |
+| 6   | joint_deviation_arms           | -0.05         |                                                 |
+| 7   | joint_deviation_torso          | -0.1          |                                                 |
+| 8   | feet_slide                     | -0.35         |                                                 |
+| 9   | track_ang_vel_z                | 1.0           |                                                 |
+| 10  | track_lin_vel_xy               | 1.0           |                                                 |
+| 11  | ball_robot_dist                | → ~0.1        | anneal as strike stabilizes                     |
+| 12  | one_foot_ground_contact        | 0.5           |                                                 |
+| 13  | foot_swing_knee_extend         | ~2.0 → ~1.0   | anneal as strike stabilizes                     |
+| 14  | ball_foot_contact              | 2.0           |                                                 |
+| 15  | ball_illegal_contact_penalty   | -4.0          |                                                 |
+| 16  | apex_height                    | 2.0           | band 0.5 – 2.0                                  |
+| 17  | log_kinematics                 | 1.0           |                                                 |
+| 18  | ball_xy_force_penalty          | -1.0          |                                                 |
+| 19  | track_ball_vel_xy_exp          | 1.0           | outcome penalty; drift for XY reach > 0.5 m     |
+| 20  | track_ball_pos_xy_exp          | 1.0           | outcome penalty; only meaningful with rail off  |
+
+**Gate** — 90% / 100:
+- ≥10 legal contacts, apex in band, ball XY drift ≈ 0, timeout.
+
+**Terminations** — add ball_ground_contact + 2 s (still unimplemented — build it before this stage) · out_of_bounds 3 m.
+
+---
+
+## Stage 4 — Domain Randomization (delta from Stage 3)
+
+**Environment**
+- Full 0.45 kg ball.
+- Randomize spawn distance/angle/height (within trained bands), ground friction/restitution, initial pose, sensor/actuator noise.
+- If `enable_corruption=True`, exclude swing_phase from corruption.
+
+**Rewards** (▲ = changed / added vs Stage 3; all weights re-tuned/annealed per randomization difficulty)
+
+| Idx | Name                           | Weight        | Note                                        |
+|-----|--------------------------------|---------------|---------------------------------------------|
+| 0   | termination_penalty            | -100.0        |                                             |
+| 1   | orientation_penalty            | -1.0          |                                             |
+| 2   | action_rate_l2                 | -0.01         |                                             |
+| 3   | lin_vel_z_l2                   | -1.5          |                                             |
+| 4   | dof_pos_limits                 | -1.0          |                                             |
+| 5   | joint_deviation_hip            | -0.2          |                                             |
+| 6   | joint_deviation_arms           | -0.05         |                                             |
+| 7   | joint_deviation_torso          | -0.1          |                                             |
+| 8   | feet_slide                     | -0.35         |                                             |
+| 9   | track_ang_vel_z                | 1.0           |                                             |
+| 10  | track_lin_vel_xy               | 1.0           |                                             |
+| 11  | ball_robot_dist                | ~0.1          |                                             |
+| 12  | one_foot_ground_contact        | 0.5           |                                             |
+| 13  | foot_swing_knee_extend         | ~1.0          |                                             |
+| 14  | ball_foot_contact              | 2.0           |                                             |
+| 15  | ball_illegal_contact_penalty   | -4.0          |                                             |
+| 16  | apex_height                    | 2.0           | band 0.5 – 2.0                              |
+| 17  | log_kinematics                 | 1.0           |                                             |
+| 18  | ball_xy_force_penalty          | -1.0          |                                             |
+| 19  | track_ball_vel_xy_exp          | 1.0           |                                             |
+| 20  | track_ball_pos_xy_exp          | 1.0           |                                             |
+| 21  | alternate_foot_bonus           | 5.0           | only if targeting multi-contact juggling    |
+
+**Gate** — 80% / 100 across conditions:
+- ≥2 legal contacts, apex in band, illegal ≈ 0, timeout.
+
+**Terminations** — add ball_ground_contact + 2 s (still unimplemented — build it before this stage) · out_of_bounds 3 m.

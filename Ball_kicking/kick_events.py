@@ -14,8 +14,8 @@ def reset_ball_state(
     env_ids,
     ball_cfg=SceneEntityCfg("ball"),
     robot_cfg=SceneEntityCfg("robot"),
-    distance_offset: float = 0.2,
-    height_offset: float = 0.3,
+    distance_offset: float = 0.0,
+    height_offset: float = 3.0,
 ):
     ball: RigidObject = env.scene[ball_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
@@ -49,6 +49,12 @@ def reset_ball_state(
         env.max_ball_vel_z[env_ids] = 0.0
     if hasattr(env, "last_contact_foot"):
         env.last_contact_foot[env_ids] = 0.0
+    if hasattr(env, "contact_count"):
+        env.contact_count[env_ids] = 0.0
+    if hasattr(env, "prev_kick_foot"):
+        env.prev_kick_foot[env_ids] = -1
+    if hasattr(env, "ball_ground_since"):
+        env.ball_ground_since[env_ids] = float("inf")
 
     # Write the new state to the simulator
     ball_quat = torch.zeros((len(env_ids), 4), device=env.device)
@@ -63,7 +69,7 @@ def constrain_ball_to_z_axis(
     env,
     env_ids,
     ball_cfg=SceneEntityCfg("ball"),
-    min_height: float = 0.3,
+    min_height: float = 3.0,
 ) -> None:
     ball: RigidObject = env.scene[ball_cfg.name]
     all_ids = torch.arange(env.num_envs, device=env.device)

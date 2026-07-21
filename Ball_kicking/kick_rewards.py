@@ -368,3 +368,108 @@ def log_kinematics(
     log["debug/ball_z"] = ball_b[:, 2].mean().item()
 
     return torch.zeros(env.num_envs, device=env.device)
+
+
+def _peak_contact_vec(env, sensor_cfg):
+    """(force_vec_at_peak (N,3), peak_mag (N,)) for a single-body ball-filtered sensor."""
+    f = env.scene[sensor_cfg.name].data.force_matrix_w_history  # (N, hist, 1, 1, 3)
+    f = f[:, :, 0, 0, :]  # (N, hist, 3)
+    mag = f.norm(dim=-1)  # (N, hist)
+    peak_mag, idx = mag.max(dim=1)  # (N,), (N,)
+    vec = f[torch.arange(f.shape[0], device=f.device), idx]  # (N, 3) force at peak step
+    return vec, peak_mag
+
+
+def ball_xy_force_penalty(
+    env: ManagerBasedRLEnv,
+    sensor_cfgs: list[
+        SceneEntityCfg
+    ],  # [left_ankle_ball_contact, right_ankle_ball_contact]
+    force_threshold: float = 0.1,
+) -> torch.Tensor:
+    """Horizontal fraction of the peak contact impulse, gated on contact.
+
+    Frictionless ball -> impulse is along the contact normal. xy_frac -> 0 iff the
+    foot strikes the UNDERSIDE (normal up -> vertical launch). Penalizing this drives
+    the policy under the ball. A hard *vertical* kick is not punished; only a diagonal
+    one. World-frame XY is correct: |xy| is yaw-invariant, and the rail absorbs world-Z.
+    """
+    total = torch.zeros(env.num_envs, device=env.device)
+    for cfg in sensor_cfgs:
+        vec, mag = _peak_contact_vec(env, cfg)
+        xy_frac = vec[:, :2].norm(dim=-1) / (mag + 1e-6)
+        total = total + torch.where(
+            mag > force_threshold, xy_frac, torch.zeros_like(xy_frac)
+        )
+    env.extras.setdefault("log", {})["debug/ball_xy_force_frac"] = total.mean().item()
+    return total
+
+
+def track_ball_vel_xy_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.5,
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
+) -> torch.Tensor:
+    """Reward near-zero ball horizontal velocity (anti-drift, Stage 3+). Positive weight."""
+    ball: RigidObject = env.scene[ball_cfg.name]
+    err = torch.sum(torch.square(ball.data.root_lin_vel_w[:, :2]), dim=1)
+    env.extras.setdefault("log", {})["debug/ball_vel_xy_mag"] = (
+        torch.sqrt(err + 1e-9).mean().item()
+    )
+    return torch.exp(-err / std**2)
+
+
+def track_ball_pos_xy_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.5,
+    reach: float = 0.0,  # deadzone radius: no penalty within `reach` of the kick point
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
+) -> torch.Tensor:
+    """Reward the ball staying near its spawn anchor (the kick point), Stage 3+. Positive weight.
+
+    Anchored to env.ball_anchor_xy (set in reset_ball_state), NOT the robot root:
+    a root-centered target would pull the ball onto the pelvis -- straight into
+    ball_illegal_contact_penalty. The anchor is a fixed per-env restoring point that
+    keeps the juggle localized over the kick point.
+    """
+    ball: RigidObject = env.scene[ball_cfg.name]
+    anchor = getattr(env, "ball_anchor_xy", None)
+    if anchor is None:
+        return torch.ones(env.num_envs, device=env.device)
+    d = torch.norm(ball.data.root_pos_w[:, :2] - anchor, dim=1)
+    excess = torch.clamp(d - reach, min=0.0)
+    env.extras.setdefault("log", {})["debug/ball_pos_xy_drift"] = d.mean().item()
+    return torch.exp(-torch.square(excess) / std**2)
+
+
+def alternate_foot_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """+1 when a scored kick uses a different foot than the previous scored kick.
+
+    MUST be declared AFTER ball_foot_contact in the RewardsCfg -- it reads
+    env.contact_count and env.last_contact_foot, both written by ball_foot_contact_reward
+    earlier in the same reward pass. Reorder them and this silently reads stale state.
+    Uses the contact_count DELTA (robust to the accumulation bug below).
+    """
+    n, dev = env.num_envs, env.device
+    if not hasattr(env, "contact_count") or not hasattr(env, "last_contact_foot"):
+        return torch.zeros(n, device=dev)
+    if not hasattr(env, "prev_contact_count"):
+        env.prev_contact_count = env.contact_count.clone()
+        env.prev_kick_foot = torch.full((n,), -1, dtype=torch.long, device=dev)
+
+    scored_now = env.contact_count > env.prev_contact_count
+    env.prev_contact_count = env.contact_count.clone()
+
+    lcf = env.last_contact_foot  # (N,2) one-hot
+    single = lcf.sum(dim=1) == 1.0  # ignore ambiguous double-foot frames
+    cur_foot = torch.where(
+        single, lcf.argmax(dim=1), torch.full((n,), -1, dtype=torch.long, device=dev)
+    )
+    valid = scored_now & single & (env.prev_kick_foot >= 0)
+    alt = valid & (cur_foot != env.prev_kick_foot)
+
+    upd = scored_now & single
+    env.prev_kick_foot = torch.where(upd, cur_foot, env.prev_kick_foot)
+
+    env.extras.setdefault("log", {})["debug/alt_foot_bonus"] = alt.float().sum().item()
+    return alt.float()
