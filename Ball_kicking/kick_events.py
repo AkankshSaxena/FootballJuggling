@@ -98,7 +98,7 @@ def constrain_ball_to_z_axis(
     ball_cfg=SceneEntityCfg("ball"),
     robot_cfg=SceneEntityCfg("robot"),
     min_height: float = 0.24,
-    follow_robot: bool = True,
+    follow_robot: bool = False,
     distance_offset: float | None = None,
     lateral_offset: float | None = None,
 ) -> None:

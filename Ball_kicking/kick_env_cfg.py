@@ -237,7 +237,7 @@ class H1JuggleEventCfg:
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
             "min_height": 0.24,
-            "follow_robot": True,
+            "follow_robot": False,
         },
     )
 
@@ -312,7 +312,7 @@ class H1JuggleRewardsCfg:
     )
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
-        weight=4.0,
+        weight=1.0,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -331,7 +331,7 @@ class H1JuggleRewardsCfg:
     # Juggling
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=10.0,
+        weight=20.0,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
@@ -354,7 +354,7 @@ class H1JuggleRewardsCfg:
     )
     apex_height = RewTerm(
         func=kick_rewards.apex_height_reward,
-        weight=10.0,
+        weight=20.0,
         params={"apex_min": 0.5, "apex_max": 2.0},  # locked-constant band
     )
 
