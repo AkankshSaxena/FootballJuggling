@@ -29,6 +29,7 @@ ISAACLAB_DIR="$HOME/isaaclab/IsaacLab"
 CONDA_ENV="isaaclab"
 PYTHON_VERSION="3.11"
 WORK_DIR="$HOME/isaaclab"
+ISAACLAB_TAG="v2.3.0"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 green()  { echo -e "\e[32m[✓] $1\e[0m"; }
@@ -122,7 +123,19 @@ step "STEP 4: Conda Environment ($CONDA_ENV)"
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
 if conda env list | grep -q "^$CONDA_ENV "; then
-  green "Conda env '$CONDA_ENV' already exists"
+  # Env exists — verify it's actually the Python version we need. A prior run
+  # (or a manual `pip install` version-resolution fight) can leave this env on
+  # the wrong interpreter with everything else looking "already installed".
+  EXISTING_PY=$(conda run -n $CONDA_ENV python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || echo "unknown")
+  if [[ "$EXISTING_PY" == "$PYTHON_VERSION" ]]; then
+    green "Conda env '$CONDA_ENV' already exists (Python $EXISTING_PY)"
+  else
+    red "Conda env '$CONDA_ENV' exists but is Python $EXISTING_PY, not $PYTHON_VERSION — recreating"
+    conda deactivate 2>/dev/null || true
+    conda env remove -n $CONDA_ENV -y
+    conda create -n $CONDA_ENV python=$PYTHON_VERSION -y
+    green "Conda env '$CONDA_ENV' recreated at Python $PYTHON_VERSION"
+  fi
 else
   conda create -n $CONDA_ENV python=$PYTHON_VERSION -y
   green "Conda env '$CONDA_ENV' created"
@@ -155,19 +168,29 @@ else
 fi
 
 # =============================================================================
-# STEP 6: Clone Isaac Lab
+# STEP 6: Clone Isaac Lab (pinned — never track main)
 # =============================================================================
-step "STEP 6: Isaac Lab"
+step "STEP 6: Isaac Lab (pinned to $ISAACLAB_TAG)"
 
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
 
 if [ -d "$ISAACLAB_DIR/.git" ]; then
   green "Isaac Lab repo already cloned"
-  cd "$ISAACLAB_DIR" && git pull --quiet
+  cd "$ISAACLAB_DIR"
+  git fetch --tags --quiet
 else
   git clone https://github.com/isaac-sim/IsaacLab.git
+  cd "$ISAACLAB_DIR"
   green "Isaac Lab cloned"
+fi
+
+CURRENT_REF=$(git describe --tags --exact-match 2>/dev/null || echo "none")
+if [[ "$CURRENT_REF" == "$ISAACLAB_TAG" ]]; then
+  green "Already on $ISAACLAB_TAG"
+else
+  git checkout "tags/$ISAACLAB_TAG" --quiet
+  green "Checked out $ISAACLAB_TAG"
 fi
 
 # =============================================================================
@@ -238,8 +261,7 @@ echo "╔═══════════════════════�
 echo "║            SETUP COMPLETE                            ║"
 echo "╠══════════════════════════════════════════════════════╣"
 echo "║  Isaac Sim : $ISAAC_SIM_DIR"
-echo "║  Isaac Lab : $ISAACLAB_DIR"
+echo "║  Isaac Lab : $ISAACLAB_DIR ($ISAACLAB_TAG)"
 echo "║  Conda env : $CONDA_ENV"
 echo "║  Log file  : $LOGFILE"
 echo "╚══════════════════════════════════════════════════════╝"
-

@@ -300,7 +300,7 @@ class H1JuggleRewardsCfg:
     ball_robot_dist = RewTerm(
         func=kick_rewards.ball_robot_dist_reward,
         weight=0.3,
-        params={"kick_range": 0.0, "std": 0.3},
+        params={"kick_range": 0.0, "std": 1.0},
     )
     one_foot_ground_contact = RewTerm(
         func=kick_rewards.one_foot_ground_contact,
