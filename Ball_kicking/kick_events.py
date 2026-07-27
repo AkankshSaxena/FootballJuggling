@@ -82,6 +82,10 @@ def reset_ball_state(
         env.prev_kick_foot[env_ids] = -1
     if hasattr(env, "ball_ground_since"):
         env.ball_ground_since[env_ids] = float("inf")
+    if hasattr(env, "prev_ball_contact"):
+        env.prev_ball_contact[env_ids] = False
+    if hasattr(env, "last_kick_time"):
+        env.last_kick_time[env_ids] = -1e9
 
     # Write the new state to the simulator
     ball_quat = torch.zeros((len(env_ids), 4), device=env.device)

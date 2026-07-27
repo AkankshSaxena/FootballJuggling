@@ -195,15 +195,26 @@ def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
     left_sensor_cfg: SceneEntityCfg,
     right_sensor_cfg: SceneEntityCfg,
-    force_threshold: float = 0.1,
-    min_ball_vel_z: float = 1.0,
+    min_peak_force: float = 100.0,  # N — HARD strike. MEASURE carry ceiling first, set ~3-5x above.
+    min_ball_vel_z: float = 3.0,  # ball launched upward after contact
+    min_kick_interval_s: float = 0.5,  # refractory: one drag can't rack up scores
 ) -> torch.Tensor:
-    """Sparse rising-edge kick reward, gated on ball moving upward past min_ball_vel_z."""
+    """Sparse rising-edge kick reward with anti-carry gating.
+
+    Scores only when ALL hold on the same frame:
+      1. RISING EDGE  : peak force crosses min_peak_force from below -> the ball
+                        separated since the last hard contact (not a sustained carry).
+      2. HARD STRIKE  : peak filtered force >= min_peak_force. Carry ~= m*g (few N);
+                        kick spikes to 100s of N. Kills feather-touch AND bounce chatter.
+      3. BALL LAUNCHED: ball vel_z > min_ball_vel_z.
+      4. REFRACTORY   : >= min_kick_interval_s since this env last scored.
+    """
     left_force = _filtered_contact_force_mag(env, left_sensor_cfg)
     right_force = _filtered_contact_force_mag(env, right_sensor_cfg)
 
-    left_contact = left_force > force_threshold
-    right_contact = right_force > force_threshold
+    # gate #1+#2: rising edge on the HARD-force signal (separation-gated by construction)
+    left_contact = left_force > min_peak_force
+    right_contact = right_force > min_peak_force
     any_contact = left_contact | right_contact
 
     if not hasattr(env, "prev_ball_contact"):
@@ -213,6 +224,7 @@ def ball_foot_contact_reward(
     new_contact = any_contact & (~env.prev_ball_contact)
     env.prev_ball_contact = any_contact.clone()
 
+    # last-contact foot bookkeeping (unchanged)
     current_contact_foot = torch.stack(
         [left_contact.float(), right_contact.float()], dim=1
     )
@@ -226,15 +238,31 @@ def ball_foot_contact_reward(
         env.last_contact_foot,
     )
 
+    # gate #3: ball launched upward
     ball: RigidObject = env.scene["ball"]
     ball_going_up = ball.data.root_lin_vel_w[:, 2] > min_ball_vel_z
-    scored = new_contact & ball_going_up
+
+    # gate #4: refractory interval
+    t = env.episode_length_buf.float() * env.step_dt
+    if not hasattr(env, "last_kick_time"):
+        env.last_kick_time = torch.full((env.num_envs,), -1e9, device=env.device)
+    refractory_ok = (t - env.last_kick_time) >= min_kick_interval_s
+
+    scored = new_contact & ball_going_up & refractory_ok
+    env.last_kick_time = torch.where(scored, t, env.last_kick_time)
 
     if not hasattr(env, "contact_count"):
         env.contact_count = torch.zeros(env.num_envs, device=env.device)
     env.contact_count += scored.float()
 
+    # --- diagnostics: this is how you set min_peak_force ---
     log = env.extras.setdefault("log", {})
+    peak = torch.maximum(left_force, right_force)  # RAW magnitude, not thresholded
+    contacting = peak > 0.5
+    log["debug/contact_peak_force_max"] = peak.max().item()
+    log["debug/contact_peak_force_mean"] = (
+        peak[contacting].mean().item() if contacting.any() else 0.0
+    )
     log["debug/new_ball_contacts"] = new_contact.float().sum().item()
     log["debug/scored_kicks"] = scored.float().sum().item()
     return scored.float()

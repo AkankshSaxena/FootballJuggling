@@ -312,7 +312,7 @@ class H1JuggleRewardsCfg:
     )
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
-        weight=1.0,
+        weight=0.5,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -335,8 +335,9 @@ class H1JuggleRewardsCfg:
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
-            "force_threshold": 0.1,
-            "min_ball_vel_z": 1.0,
+            "min_peak_force": 100.0,
+            "min_ball_vel_z": 3.0,
+            "min_kick_interval_s": 0.5,
         },
     )
     ball_illegal_contact_penalty = RewTerm(
@@ -395,11 +396,11 @@ class H1JuggleTerminationsCfg:
     robot_falls = DoneTerm(func=kick_terminations.torso_height_below)
     # max_distance vs env_spacing mismatch -- see note; lower to ~3.0 before ball flies.
     robot_out_of_bounds = DoneTerm(func=kick_terminations.robot_out_of_bounds)
-    ball_on_ground = DoneTerm(
-        func=kick_terminations.ball_on_ground_timeout,
-        time_out=False,
-        params={"delay_s": 2.0, "ground_height": 0.15},
-    )
+    # ball_on_ground = DoneTerm(
+    #     func=kick_terminations.ball_on_ground_timeout,
+    #     time_out=False,
+    #     params={"delay_s": 2.0, "ground_height": 0.15},
+    # )
 
 
 @configclass
