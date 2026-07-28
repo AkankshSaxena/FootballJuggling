@@ -26,10 +26,14 @@ ISAAC_SIM_VERSION="5.1.0"
 ISAAC_SIM_URL="https://downloads.isaacsim.nvidia.com/isaac-sim-standalone-${ISAAC_SIM_VERSION}-linux-x86_64.zip"
 ISAAC_SIM_DIR="$HOME/isaacsim"
 ISAACLAB_DIR="$HOME/isaaclab/IsaacLab"
+# PINNED Isaac Lab version. Do NOT track `main` — it moved to the 3.0 line
+# (Python 3.12 / torch 2.10 / Isaac Sim 6.0) and will not install against this
+# 3.11 env + Isaac Sim 5.1. v2.3.2 is the last release on the 2.3 (Isaac Sim
+# 4.5/5.0/5.1) line. Bump this ONLY together with ISAAC_SIM_VERSION + PYTHON_VERSION.
+ISAACLAB_VERSION="v2.3.2"
 CONDA_ENV="isaaclab"
 PYTHON_VERSION="3.11"
 WORK_DIR="$HOME/isaaclab"
-ISAACLAB_TAG="v2.3.0"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 green()  { echo -e "\e[32m[✓] $1\e[0m"; }
@@ -123,19 +127,7 @@ step "STEP 4: Conda Environment ($CONDA_ENV)"
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
 if conda env list | grep -q "^$CONDA_ENV "; then
-  # Env exists — verify it's actually the Python version we need. A prior run
-  # (or a manual `pip install` version-resolution fight) can leave this env on
-  # the wrong interpreter with everything else looking "already installed".
-  EXISTING_PY=$(conda run -n $CONDA_ENV python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || echo "unknown")
-  if [[ "$EXISTING_PY" == "$PYTHON_VERSION" ]]; then
-    green "Conda env '$CONDA_ENV' already exists (Python $EXISTING_PY)"
-  else
-    red "Conda env '$CONDA_ENV' exists but is Python $EXISTING_PY, not $PYTHON_VERSION — recreating"
-    conda deactivate 2>/dev/null || true
-    conda env remove -n $CONDA_ENV -y
-    conda create -n $CONDA_ENV python=$PYTHON_VERSION -y
-    green "Conda env '$CONDA_ENV' recreated at Python $PYTHON_VERSION"
-  fi
+  green "Conda env '$CONDA_ENV' already exists"
 else
   conda create -n $CONDA_ENV python=$PYTHON_VERSION -y
   green "Conda env '$CONDA_ENV' created"
@@ -143,6 +135,16 @@ fi
 
 conda activate $CONDA_ENV
 conda install pip -y
+
+# Guard: v2.3.2 requires Python 3.11. If a stale/wrong env is active, fail loudly
+# now instead of hitting the confusing "requires >=3.12" error mid-install.
+ACTIVE_PY=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+if [[ "$ACTIVE_PY" != "$PYTHON_VERSION" ]]; then
+  red "Active Python is $ACTIVE_PY but $ISAACLAB_VERSION needs $PYTHON_VERSION."
+  red "Recreate the env:  conda env remove -n $CONDA_ENV && re-run this script."
+  exit 1
+fi
+green "Python $ACTIVE_PY OK for $ISAACLAB_VERSION"
 
 # =============================================================================
 # STEP 5: Isaac Sim Download + Install
@@ -168,30 +170,30 @@ else
 fi
 
 # =============================================================================
-# STEP 6: Clone Isaac Lab (pinned — never track main)
+# STEP 6: Clone / Checkout Isaac Lab (PINNED)
 # =============================================================================
-step "STEP 6: Isaac Lab (pinned to $ISAACLAB_TAG)"
+step "STEP 6: Isaac Lab ($ISAACLAB_VERSION)"
 
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
 
 if [ -d "$ISAACLAB_DIR/.git" ]; then
-  green "Isaac Lab repo already cloned"
+  green "Isaac Lab repo already cloned — checking out $ISAACLAB_VERSION"
   cd "$ISAACLAB_DIR"
-  git fetch --tags --quiet
+  # Was `git pull` here (tracked main -> drifted to 3.0 line and broke install).
+  # Now: fetch tags and hard-pin to the tag. No tracking of main.
+  git fetch --tags --quiet origin
+  git checkout --quiet "$ISAACLAB_VERSION"
 else
-  git clone https://github.com/isaac-sim/IsaacLab.git
-  cd "$ISAACLAB_DIR"
-  green "Isaac Lab cloned"
+  # Shallow clone straight at the pinned tag.
+  git clone --branch "$ISAACLAB_VERSION" --depth 1 \
+    https://github.com/isaac-sim/IsaacLab.git "$ISAACLAB_DIR"
+  green "Isaac Lab cloned at $ISAACLAB_VERSION"
 fi
 
-CURRENT_REF=$(git describe --tags --exact-match 2>/dev/null || echo "none")
-if [[ "$CURRENT_REF" == "$ISAACLAB_TAG" ]]; then
-  green "Already on $ISAACLAB_TAG"
-else
-  git checkout "tags/$ISAACLAB_TAG" --quiet
-  green "Checked out $ISAACLAB_TAG"
-fi
+# Log exactly what we're on (git hygiene — record the commit).
+cd "$ISAACLAB_DIR"
+green "Isaac Lab checked out: $(git describe --tags --always) @ $(git rev-parse --short HEAD)"
 
 # =============================================================================
 # STEP 7: Link Isaac Sim → Isaac Lab + Install
@@ -260,8 +262,8 @@ echo ""
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║            SETUP COMPLETE                            ║"
 echo "╠══════════════════════════════════════════════════════╣"
-echo "║  Isaac Sim : $ISAAC_SIM_DIR"
-echo "║  Isaac Lab : $ISAACLAB_DIR ($ISAACLAB_TAG)"
-echo "║  Conda env : $CONDA_ENV"
+echo "║  Isaac Sim : $ISAAC_SIM_DIR ($ISAAC_SIM_VERSION)"
+echo "║  Isaac Lab : $ISAACLAB_DIR ($ISAACLAB_VERSION)"
+echo "║  Conda env : $CONDA_ENV (Python $PYTHON_VERSION)"
 echo "║  Log file  : $LOGFILE"
 echo "╚══════════════════════════════════════════════════════╝"
