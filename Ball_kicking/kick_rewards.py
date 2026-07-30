@@ -88,7 +88,7 @@ def ball_robot_dist_reward(
     )
     log = env.extras.setdefault("log", {})
     log["debug/robot_ball_dist"] = dist.mean().item()
-    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.60)
+    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.80)
 
 
 def one_foot_ground_contact(

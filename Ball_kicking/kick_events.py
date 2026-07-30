@@ -37,9 +37,9 @@ def reset_ball_state(
     env_ids,
     ball_cfg=SceneEntityCfg("ball"),
     robot_cfg=SceneEntityCfg("robot"),
-    distance_offset: float = 0.47,
-    lateral_offset: float = 0.08,
-    height_offset: float = 0.24,
+    distance_offset: float = 0.0,
+    lateral_offset: float = 0.0,
+    height_offset: float = 3.0,
 ):
     ball: RigidObject = env.scene[ball_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
@@ -101,8 +101,8 @@ def constrain_ball_to_z_axis(
     env_ids,
     ball_cfg=SceneEntityCfg("ball"),
     robot_cfg=SceneEntityCfg("robot"),
-    min_height: float = 0.24,
-    follow_robot: bool = False,
+    min_height: float = 3.0,
+    follow_robot: bool = True,
     distance_offset: float | None = None,
     lateral_offset: float | None = None,
 ) -> None:

@@ -3,6 +3,21 @@
 # Isaac Lab Setup Script — A6000 / Brev
 # Idempotent: safe to re-run. Skips steps already done.
 # Usage: bash setup_isaaclab.sh [--skip-driver] [--skip-sim]
+#
+# CHANGELOG (fixes learned the hard way, baked in):
+#   - Isaac Lab PINNED to v2.3.2 (main drifted to the 3.0 line: py3.12 / torch
+#     2.10 / Isaac Sim 6.0, which will NOT install on this py3.11 + Sim 5.1 stack).
+#   - Re-run path checks out the tag instead of `git pull` (no more main tracking).
+#   - Python-version guard before install (fails loud instead of the cryptic
+#     "requires >=3.12" mid-build).
+#   - setuptools<81 pinned in the env (>=81 drops pkg_resources, which flatdict
+#     needs at build time -> core isaaclab install fails).
+#   - `toml` forced into the env (isaaclab's setup.py imports it at build time).
+#   - core `isaaclab` installed with --no-build-isolation (so flatdict builds
+#     against the pinned setuptools, not a fresh isolated >=81 one).
+#   - `--install rsl_rl` instead of default `--install` (=[all]); [all] pulls
+#     rl-games/sb3/skrl whose deps upgrade torch to 2.13+cu13 and break Sim 5.1.
+#   - post-install torch guard: re-pins 2.7.0+cu128 if anything bumped it.
 # =============================================================================
 
 set -e
@@ -31,6 +46,12 @@ ISAACLAB_DIR="$HOME/isaaclab/IsaacLab"
 # 3.11 env + Isaac Sim 5.1. v2.3.2 is the last release on the 2.3 (Isaac Sim
 # 4.5/5.0/5.1) line. Bump this ONLY together with ISAAC_SIM_VERSION + PYTHON_VERSION.
 ISAACLAB_VERSION="v2.3.2"
+# Build-tooling / stack pins (see CHANGELOG). Keep in lockstep with the line above.
+SETUPTOOLS_PIN="setuptools<81"
+TORCH_PIN="torch==2.7.0"
+TORCHVISION_PIN="torchvision==0.22.0"
+TORCH_INDEX="https://download.pytorch.org/whl/cu128"
+RL_FRAMEWORK="rsl_rl"   # install ONLY rsl-rl extras (not [all]) to avoid torch 2.13
 CONDA_ENV="isaaclab"
 PYTHON_VERSION="3.11"
 WORK_DIR="$HOME/isaaclab"
@@ -218,8 +239,44 @@ if [ -f "$ISAAC_SIM_DIR/setup_conda_env.sh" ]; then
   source "$ISAAC_SIM_DIR/setup_conda_env.sh"
 fi
 
-# Install Isaac Lab
-./isaaclab.sh --install
+# ── Build-tooling pins (root cause of the flatdict / pkg_resources failure) ──
+# setuptools>=81 removed pkg_resources; flatdict==4.0.1 (a core isaaclab dep with
+# no modern build backend) imports it at build time -> build fails. Pin <81 in the
+# env. `toml` is imported by isaaclab's setup.py at build time; force it in too
+# (--ignore-installed so Isaac Sim's prebundled copy doesn't mask the install).
+yellow "Pinning build tooling ($SETUPTOOLS_PIN, toml)..."
+pip install "$SETUPTOOLS_PIN" wheel
+pip install --ignore-installed toml
+green "Build tooling pinned"
+
+# Install extensions + ONLY the rsl-rl framework.
+# NOT the default `--install` (=[all]): [all] pulls rl-games/sb3/skrl whose deps
+# upgrade torch to 2.13 + cu13 and break the Isaac Sim 5.1 (torch 2.7/cu128) stack.
+# The core `isaaclab` package is EXPECTED to error here on flatdict (pip build
+# isolation spins up a fresh setuptools>=81); that specific failure is recovered
+# by the explicit --no-build-isolation install below. `|| yellow ...` keeps
+# `set -e` from aborting on that one known, handled failure.
+yellow "Installing extensions + $RL_FRAMEWORK framework..."
+./isaaclab.sh --install "$RL_FRAMEWORK" \
+  || yellow "isaaclab.sh --install returned non-zero (expected: core pkg flatdict build under isolation). Recovering below."
+
+# Explicit core install, no build isolation -> flatdict builds against the pinned
+# setuptools<81 in THIS env instead of a fresh isolated >=81 one.
+yellow "Installing core isaaclab (--no-build-isolation)..."
+pip install --no-build-isolation -e source/isaaclab
+green "Core isaaclab installed"
+
+# ── torch stack guard ──
+# The [all] extras (or a transitive dep) can silently upgrade torch. For Isaac Sim
+# 5.1 it MUST stay 2.7.0+cu128. Verify, and hard re-pin if it drifted.
+TORCH_VER=$(python -c 'import torch; print(torch.__version__)' 2>/dev/null || echo "none")
+if [[ "$TORCH_VER" == 2.7.0+cu128* ]]; then
+  green "torch $TORCH_VER OK"
+else
+  yellow "torch is '$TORCH_VER' — re-pinning to 2.7.0+cu128"
+  pip install --force-reinstall "$TORCH_PIN" "$TORCHVISION_PIN" --index-url "$TORCH_INDEX"
+  green "torch re-pinned: $(python -c 'import torch; print(torch.__version__)')"
+fi
 
 green "Isaac Lab installed"
 
@@ -233,9 +290,9 @@ pip install -q wandb
 green "Extra packages installed"
 
 # =============================================================================
-# STEP 9: Smoke Test
+# STEP 9: Import + Smoke Test
 # =============================================================================
-step "STEP 9: Smoke Test"
+step "STEP 9: Import + Smoke Test"
 
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 conda activate $CONDA_ENV
@@ -247,8 +304,15 @@ fi
 export DISPLAY=
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
 
-yellow "Running Cartpole test (headless, ~2 min)..."
 cd "$ISAACLAB_DIR"
+
+# Import check THROUGH the launcher (raw `python -c "import isaaclab"` fails on
+# `pxr`/USD, which only loads via the Isaac Sim launcher — expected, not a bug).
+yellow "Verifying imports through the launcher..."
+./isaaclab.sh -p -c "import isaaclab, wandb; print('imports OK — wandb', wandb.__version__)" \
+  && green "Imports OK" || red "Import check failed — check $LOGFILE"
+
+yellow "Running Cartpole test (headless, ~2 min)..."
 timeout 120 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task Isaac-Cartpole-v0 \
   --headless \
@@ -267,3 +331,4 @@ echo "║  Isaac Lab : $ISAACLAB_DIR ($ISAACLAB_VERSION)"
 echo "║  Conda env : $CONDA_ENV (Python $PYTHON_VERSION)"
 echo "║  Log file  : $LOGFILE"
 echo "╚══════════════════════════════════════════════════════╝"
+echo ""

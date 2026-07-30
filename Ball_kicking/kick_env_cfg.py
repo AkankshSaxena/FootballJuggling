@@ -67,7 +67,8 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
         # Pre-reset spawn (reset_ball re-places it every episode). y=-0.08 = robot's
         # right (right-foot side), matching reset_ball's lateral_offset=0.08.
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.08, 0.24)),
+        # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.08, 0.24)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 3.0)),
     )
 
     light = AssetBaseCfg(
@@ -218,9 +219,9 @@ class H1JuggleEventCfg:
         func=kick_events.reset_ball_state,
         mode="reset",
         params={
-            "distance_offset": 0.47,
-            "lateral_offset": 0.08,
-            "height_offset": 0.24,
+            "distance_offset": 0.0,
+            "lateral_offset": 0.0,
+            "height_offset": 3.0,
         },
     )
 
@@ -236,8 +237,8 @@ class H1JuggleEventCfg:
         params={
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
-            "min_height": 0.24,
-            "follow_robot": False,
+            "min_height": 3.0,
+            "follow_robot": True,
         },
     )
 
@@ -312,7 +313,7 @@ class H1JuggleRewardsCfg:
     )
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
-        weight=0.5,
+        weight=4.0,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -331,7 +332,7 @@ class H1JuggleRewardsCfg:
     # Juggling
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=20.0,
+        weight=0.0,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
@@ -342,7 +343,7 @@ class H1JuggleRewardsCfg:
     )
     ball_illegal_contact_penalty = RewTerm(
         func=kick_rewards.ball_illegal_contact_penalty,
-        weight=-5.0,
+        weight=0.0,
         params={
             "illegal_sensor_cfgs": [
                 SceneEntityCfg("pelvis_ball_contact"),
@@ -355,7 +356,7 @@ class H1JuggleRewardsCfg:
     )
     apex_height = RewTerm(
         func=kick_rewards.apex_height_reward,
-        weight=20.0,
+        weight=0.0,
         params={"apex_min": 0.5, "apex_max": 2.0},  # locked-constant band
     )
 
@@ -365,7 +366,7 @@ class H1JuggleRewardsCfg:
     # Later stage rewards
     ball_xy_force_penalty = RewTerm(
         func=kick_rewards.ball_xy_force_penalty,
-        weight=-1.0,
+        weight=0.0,
         params={
             "sensor_cfgs": [
                 SceneEntityCfg("left_ankle_ball_contact"),
