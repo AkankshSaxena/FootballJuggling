@@ -136,8 +136,8 @@ Stage 2.2 — Swing with Ball Contact (No follow)
             - changes in kick_env_cfg 
                 - constrain_ball {"follow_robot": False,}
                 - ball_foot_contact {   
-                    "min_peak_force": 50.0,
-                    "min_ball_vel_z": 3.0,
+                    "min_peak_force": 25.0,
+                    "min_ball_vel_z": 2.0,
                     "min_kick_interval_s": 0.5,}
                 - rewards
         - Z-constraint on 
@@ -159,12 +159,12 @@ Stage 2.2 — Swing with Ball Contact (No follow)
         |     |                                |         |
         | 11  | ball_robot_dist                | 0.3     |
         | 12  | one_foot_ground_contact        | 0.5     |
-        | 13  | foot_swing_knee_extend         | 4.0     |
+        | 13  | foot_swing_knee_extend         | 0.0     |
         | 14  | log_kinematics                 | 1.0     |
         |     |                                |         |
-        | 15  | ball_foot_contact              | 20.0    |
+        | 15  | ball_foot_contact              | 50.0    |
         | 16  | ball_illegal_contact_penalty   | -5.0    |
-        | 17  | apex_height                    | 20.0    |
+        | 17  | apex_height                    | 50.0    |
         | 18  | ball_xy_force_penalty          | -2.0    |
         | 19  | track_ball_vel_xy_exp          | 0.0     |
         | 20  | track_ball_pos_xy_exp          | 0.0     |
