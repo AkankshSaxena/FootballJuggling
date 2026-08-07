@@ -67,7 +67,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
         # Pre-reset spawn (reset_ball re-places it every episode). y=-0.08 = robot's
         # right (right-foot side), matching reset_ball's lateral_offset=0.08.
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.075, 1.24)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.075, 0.24)),
     )
 
     light = AssetBaseCfg(
@@ -220,7 +220,7 @@ class H1JuggleEventCfg:
         params={
             "distance_offset": 0.47,
             "lateral_offset": 0.075,
-            "height_offset": 1.24,
+            "height_offset": 0.24,
         },
     )
 
@@ -229,24 +229,24 @@ class H1JuggleEventCfg:
     # follow_robot=True: ball tracks the robot (stays distance_offset in front as
     # it walks/turns), reusing reset_ball's distance_offset. Set False to pin the
     # ball at its fixed spawn anchor instead.
-    # constrain_ball = EventTerm(
-    #     func=kick_events.constrain_ball_to_z_axis,
-    #     mode="interval",
-    #     interval_range_s=(0.0, 0.0),  # every env step
-    #     params={
-    #         "ball_cfg": SceneEntityCfg("ball"),
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "min_height": 0.24,
-    #         "follow_robot": False,
-    #     },
-    # )
-
-    ball_gravity = EventTerm(
-        func=kick_events.ball_gravity_scale,
+    constrain_ball = EventTerm(
+        func=kick_events.constrain_ball_to_z_axis,
         mode="interval",
         interval_range_s=(0.0, 0.0),  # every env step
-        params={"ball_cfg": SceneEntityCfg("ball"), "k": 1.0},
+        params={
+            "ball_cfg": SceneEntityCfg("ball"),
+            "robot_cfg": SceneEntityCfg("robot"),
+            "min_height": 0.24,
+            "follow_robot": True,
+        },
     )
+
+    # ball_gravity = EventTerm(
+    #     func=kick_events.ball_gravity_scale,
+    #     mode="interval",
+    #     interval_range_s=(0.0, 0.0),  # every env step
+    #     params={"ball_cfg": SceneEntityCfg("ball"), "k": 1.0},
+    # )
 
 
 @configclass
@@ -319,7 +319,7 @@ class H1JuggleRewardsCfg:
     )
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
-        weight=0.0,
+        weight=0.5,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -338,13 +338,16 @@ class H1JuggleRewardsCfg:
     # Juggling
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=50.0,
+        weight=30.0,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
-            "min_peak_force": 25.0,
-            "min_ball_vel_z": 1.2,
-            "min_kick_interval_s": 0.4,
+            # "min_peak_force": 25.0,   Stage 3
+            # "min_ball_vel_z": 1.2,
+            # "min_kick_interval_s": 0.4,
+            "min_peak_force": 1.0,
+            "min_ball_vel_z": 0.0,
+            "min_kick_interval_s": 0.5,
         },
     )
     ball_illegal_contact_penalty = RewTerm(
@@ -362,7 +365,7 @@ class H1JuggleRewardsCfg:
     )
     apex_height = RewTerm(
         func=kick_rewards.apex_height_reward,
-        weight=50.0,
+        weight=30.0,
         params={"apex_min": 0.8, "apex_max": 1.6},  # locked-constant band
     )
 
@@ -383,12 +386,12 @@ class H1JuggleRewardsCfg:
     )
     track_ball_vel_xy = RewTerm(
         func=kick_rewards.track_ball_vel_xy_exp,
-        weight=1.0,
+        weight=0.0,
         params={"std": 0.5},
     )
     track_ball_pos_xy = RewTerm(
         func=kick_rewards.track_ball_pos_xy_exp,
-        weight=1.0,
+        weight=0.0,
         params={"std": 0.5, "reach": 0.5},
     )
     alternate_foot_bonus = RewTerm(

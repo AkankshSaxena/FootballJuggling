@@ -86,7 +86,7 @@ Stage 2.1 — Swing with Ball Contact (Z-constrained rail)
 
 ---
 
-Stage 2.1.5 — Swing with Ball Contact (Anneal swing reward)
+Stage 2.2 — Swing with Ball Contact (Anneal swing reward)
     Environment -
         - Ball on the foot arc, placed so the foot passes under it 
             - changes in kick_env_cfg 
@@ -102,7 +102,7 @@ Stage 2.1.5 — Swing with Ball Contact (Anneal swing reward)
         | 3   | lin_vel_z_l2                   | -1.5    |
         | 4   | dof_pos_limits                 | -1.0    |
         | 5   | joint_deviation_hip            | -0.2    |
-        | 6   | joint_deviation_arms           | -0.05   |
+        | 6   | joint_deviation_arms           | -0.1   |
         | 7   | joint_deviation_torso          | -0.1    |
         | 8   | feet_slide                     | -0.35   |
         | 9   | track_ang_vel_z                | 1.0     |
@@ -130,7 +130,7 @@ Stage 2.1.5 — Swing with Ball Contact (Anneal swing reward)
 
 ---
 
-Stage 2.2 — Swing with Ball Contact (No follow)
+Stage 2.3 — Swing with Ball Contact (No follow)
     Environment -
         - Ball on the foot arc, placed so the foot passes under it 
             - changes in kick_env_cfg 
@@ -177,49 +177,6 @@ Stage 2.2 — Swing with Ball Contact (No follow)
         - No falls, orientation in bounds, timeout termination.
     Terminations — torso < 0.3 · timeout 25 s · robot-ball XY > 3 
 
----
-
-Stage 2.3 — Swing with Ball Contact (Anneal swing reward)
-    Environment -
-        - Ball on the foot arc, placed so the foot passes under it 
-            - changes in kick_env_cfg 
-                - rewards
-        - Z-constraint on 
-    Rewards -
-        +-----+--------------------------------+---------+
-        | Idx | Name                           | Weight  |
-        +-----+--------------------------------+---------+
-        | 0   | termination_penalty            | -100.0  |
-        | 1   | orientation_penalty            | -1.0    |
-        | 2   | action_rate_l2                 | -0.01   |
-        | 3   | lin_vel_z_l2                   | -1.5    |
-        | 4   | dof_pos_limits                 | -1.0    |
-        | 5   | joint_deviation_hip            | -0.2    |
-        | 6   | joint_deviation_arms           | -0.05   |
-        | 7   | joint_deviation_torso          | -0.1    |
-        | 8   | feet_slide                     | -0.35   |
-        | 9   | track_ang_vel_z                | 1.0     |
-        | 10  | track_lin_vel_xy               | 1.0     |
-        |     |                                |         |
-        | 11  | ball_robot_dist                | 0.3     |
-        | 12  | one_foot_ground_contact        | 0.5     |
-        | 13  | foot_swing_knee_extend         | 1.0     |
-        | 14  | log_kinematics                 | 1.0     |
-        |     |                                |         |
-        | 15  | ball_foot_contact              | 20.0    |
-        | 16  | ball_illegal_contact_penalty   | -5.0    |
-        | 17  | apex_height                    | 20.0    |
-        | 18  | ball_xy_force_penalty          | -2.0    |
-        | 19  | track_ball_vel_xy_exp          | 0.0     |
-        | 20  | track_ball_pos_xy_exp          | 0.0     |
-        | 21  | alternate_foot_bonus           | 0.0     |
-        +-----+--------------------------------+---------+
-    Transition gate — 90% over 100 iters:
-        - >5 kicks/episode.
-        - apex_height firing in-band (0.5–2.0) consistently 
-        - ball_xy_force_penalty ≈ 0 
-        - No falls, orientation in bounds, timeout termination.
-    Terminations — torso < 0.3 · timeout 25 s · robot-ball XY > 3 m 
                             ---
 
                             Stage 2.4 — Swing with Ball Contact (distance randomization)
