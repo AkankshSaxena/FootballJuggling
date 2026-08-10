@@ -88,7 +88,7 @@ def ball_robot_dist_reward(
     )
     log = env.extras.setdefault("log", {})
     log["debug/robot_ball_dist"] = dist.mean().item()
-    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.80)
+    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.50)
 
 
 def one_foot_ground_contact(
@@ -163,24 +163,14 @@ def foot_swing_knee_extend(
     yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
 
     # --- active leg: ball Y-sign in robot yaw frame, with hysteresis ---
-    if not hasattr(env, "active_leg"):
-        # Fallback only -- reset_ball_state should set this directly per env
-        # before this ever gets read in normal operation.
-        env.active_leg = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+    # --- active leg: Even envs = Right (0), Odd envs = Left (1) ---
+    env_idx = torch.arange(env.num_envs, device=env.device)
+    active_leg_is_left = env_idx % 2 != 0
 
+    # Calculate ball_y purely for the logging at the end of the function
     ball_rel_w = ball.data.root_pos_w - robot.data.root_pos_w
     ball_rel_b = math_utils.quat_apply_inverse(yaw_quat, ball_rel_w)
     ball_y = ball_rel_b[:, 1]
-
-    switch_to_left = (ball_y > active_leg_hysteresis) & (env.active_leg == 0)
-    switch_to_right = (ball_y < -active_leg_hysteresis) & (env.active_leg == 1)
-    env.active_leg = torch.where(
-        switch_to_left, torch.ones_like(env.active_leg), env.active_leg
-    )
-    env.active_leg = torch.where(
-        switch_to_right, torch.zeros_like(env.active_leg), env.active_leg
-    )
-    active_leg_is_left = env.active_leg == 1
 
     # --- shared triangular phase variable ---
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
@@ -270,8 +260,13 @@ def ball_foot_contact_reward(
     right_force = _filtered_contact_force_mag(env, right_sensor_cfg)
 
     # gate #1+#2: rising edge on the HARD-force signal (separation-gated by construction)
-    left_contact = left_force > min_peak_force
-    right_contact = right_force > min_peak_force
+    # gate #1+#2: rising edge on the HARD-force signal, strictly masked by target leg
+    env_idx = torch.arange(env.num_envs, device=env.device)
+    is_left_target = env_idx % 2 != 0
+    is_right_target = env_idx % 2 == 0
+
+    left_contact = (left_force > min_peak_force) & is_left_target
+    right_contact = (right_force > min_peak_force) & is_right_target
     any_contact = left_contact | right_contact
 
     if not hasattr(env, "prev_ball_contact"):

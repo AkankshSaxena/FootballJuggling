@@ -227,6 +227,8 @@ class H1JuggleObservationsCfg:
         )
         last_contact_foot = ObsTerm(func=kick_observations.last_contact_foot)
 
+        target_leg = ObsTerm(func=kick_observations.target_leg_command)
+
         def __post_init__(self):
             self.enable_corruption = (
                 False  # if enabled for Stage 3, exclude swing_phase
@@ -395,9 +397,9 @@ class H1JuggleRewardsCfg:
                 body_names=["left_hip_pitch_link", "left_ankle_link"],
                 preserve_order=True,
             ),
-            "h_right": 0.7874,
+            "h_right": 0.7384,
             "h_prime_right": 0.80,
-            "h_left": 0.7874,  # PLACEHOLDER -- not measured
+            "h_left": 0.7384,  # PLACEHOLDER -- not measured
             "h_prime_left": 0.80,  # PLACEHOLDER -- not measured
             "theta_max_deg": SWING_THETA_MAX_DEG,
             "swing_time": SWING_TIME,
