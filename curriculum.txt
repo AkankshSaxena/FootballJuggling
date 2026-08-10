@@ -93,40 +93,51 @@ Stage 2.2 — Swing with Ball Contact (Anneal swing reward)
                 - rewards
         - Z-constraint on 
     Rewards -
-        +-----+--------------------------------+---------+
-        | Idx | Name                           | Weight  |
-        +-----+--------------------------------+---------+
-        | 0   | termination_penalty            | -100.0  |
-        | 1   | orientation_penalty            | -1.0    |
-        | 2   | action_rate_l2                 | -0.01   |
-        | 3   | lin_vel_z_l2                   | -1.5    |
-        | 4   | dof_pos_limits                 | -1.0    |
-        | 5   | joint_deviation_hip            | -0.2    |
-        | 6   | joint_deviation_arms           | -0.1   |
-        | 7   | joint_deviation_torso          | -0.1    |
-        | 8   | feet_slide                     | -0.35   |
-        | 9   | track_ang_vel_z                | 1.0     |
-        | 10  | track_lin_vel_xy               | 1.0     |
-        |     |                                |         |
-        | 11  | ball_robot_dist                | 0.3     |
-        | 12  | one_foot_ground_contact        | 0.5     |
-        | 13  | foot_swing_knee_extend         | 0.5     |
-        | 14  | log_kinematics                 | 1.0     |
-        |     |                                |         |
-        | 15  | ball_foot_contact              | 30.0    |
-        | 16  | ball_illegal_contact_penalty   | -5.0    |
-        | 17  | apex_height                    | 30.0    |
-        | 18  | ball_xy_force_penalty          | -2.0    |
-        | 19  | track_ball_vel_xy_exp          | 0.0     |
-        | 20  | track_ball_pos_xy_exp          | 0.0     |
-        | 21  | alternate_foot_bonus           | 0.0     |
-        +-----+--------------------------------+---------+
+        [INFO] Reward Manager:  <RewardManager> contains 22 active terms.
+        +-----------------------------------------------+
+        |              Active Reward Terms              |
+        +-------+------------------------------+--------+
+        | Index | Name                         | Weight |
+        +-------+------------------------------+--------+
+        |   0   | termination_penalty          | -100.0 |
+        |   1   | orientation_penalty          |   -1.0 |
+        |   2   | action_rate_l2               |  -0.01 |
+        |   3   | lin_vel_z_l2                 |   -1.5 |
+        |   4   | dof_pos_limits               |   -1.0 |
+        |   5   | joint_deviation_hip          |   -0.2 |
+        |   6   | joint_deviation_arms         |   -0.1 |
+        |   7   | joint_deviation_torso        |   -0.1 |
+        |   8   | feet_slide                   |  -0.35 |
+        |   9   | track_ang_vel_z              |    1.0 |
+        |   10  | track_lin_vel_xy             |    1.0 |
+        |   11  | ball_robot_dist              |    0.3 |
+        |   12  | one_foot_ground_contact      |    0.5 |
+        |   13  | foot_swing_knee_extend       |    0.5 |
+        |   14  | ball_foot_contact            |   30.0 |
+        |   15  | ball_illegal_contact_penalty |   -5.0 |
+        |   16  | apex_height                  |   30.0 |
+        |   17  | log_kinematics               |    1.0 |
+        |   18  | ball_xy_force_penalty        |   -2.0 |
+        |   19  | track_ball_vel_xy            |    0.0 |
+        |   20  | track_ball_pos_xy            |    0.0 |
+        |   21  | alternate_foot_bonus         |    0.0 |
+        +-------+------------------------------+--------+
+
     Transition gate — 90% over 100 iters:
         - >5 kicks/episode.
         - apex_height firing in-band (0.5–2.0) consistently 
         - ball_xy_force_penalty ≈ 0 
         - No falls, orientation in bounds, timeout termination.
     Terminations — torso < 0.3 · timeout 25 s · robot-ball XY > 3 m 
+        +----------------------------------------+
+        |        Active Termination Terms        |
+        +-------+---------------------+----------+
+        | Index | Name                | Time Out |
+        +-------+---------------------+----------+
+        |   0   | time_out            |   True   |
+        |   1   | robot_falls         |  False   |
+        |   2   | robot_out_of_bounds |  False   |
+        +-------+---------------------+----------+
 
 ---
 
@@ -170,6 +181,47 @@ Stage 2.3 — Swing with Ball Contact (No follow)
         | 20  | track_ball_pos_xy_exp          | 0.0     |
         | 21  | alternate_foot_bonus           | 0.0     |
         +-----+--------------------------------+---------+
+
+        [INFO] Termination Manager:  <TerminationManager> contains 3 active terms.
+        +----------------------------------------+
+        |        Active Termination Terms        |
+        +-------+---------------------+----------+
+        | Index | Name                | Time Out |
+        +-------+---------------------+----------+
+        |   0   | time_out            |   True   |
+        |   1   | robot_falls         |  False   |
+        |   2   | robot_out_of_bounds |  False   |
+        +-------+---------------------+----------+
+
+        [INFO] Reward Manager:  <RewardManager> contains 22 active terms.
+        +-----------------------------------------------+
+        |              Active Reward Terms              |
+        +-------+------------------------------+--------+
+        | Index | Name                         | Weight |
+        +-------+------------------------------+--------+
+        |   0   | termination_penalty          | -100.0 |
+        |   1   | orientation_penalty          |   -1.0 |
+        |   2   | action_rate_l2               |  -0.01 |
+        |   3   | lin_vel_z_l2                 |   -1.5 |
+        |   4   | dof_pos_limits               |   -1.0 |
+        |   5   | joint_deviation_hip          |   -0.2 |
+        |   6   | joint_deviation_arms         |   -0.1 |
+        |   7   | joint_deviation_torso        |   -0.1 |
+        |   8   | feet_slide                   |  -0.35 |
+        |   9   | track_ang_vel_z              |    1.0 |
+        |   10  | track_lin_vel_xy             |    1.0 |
+        |   11  | ball_robot_dist              |    0.3 |
+        |   12  | one_foot_ground_contact      |    0.5 |
+        |   13  | foot_swing_knee_extend       |    0.0 |
+        |   14  | ball_foot_contact            |   50.0 |
+        |   15  | ball_illegal_contact_penalty |  -10.0 |
+        |   16  | apex_height                  |   50.0 |
+        |   17  | log_kinematics               |    1.0 |
+        |   18  | ball_xy_force_penalty        |   -2.0 |
+        |   19  | track_ball_vel_xy            |    0.0 |
+        |   20  | track_ball_pos_xy            |    0.0 |
+        |   21  | alternate_foot_bonus         |    0.0 |
+        +-------+------------------------------+--------+
     Transition gate — 90% over 100 iters:
         - >5 kicks/episode.
         - apex_height firing in-band (0.5–2.0) consistently 

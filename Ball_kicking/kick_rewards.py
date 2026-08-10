@@ -275,8 +275,10 @@ def ball_illegal_contact_penalty(
 ) -> torch.Tensor:
     """Penalize ball contact on any non-foot body (pass one single-body sensor each)."""
     illegal_contact = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    log = env.extras.setdefault("log", {})
     for cfg in illegal_sensor_cfgs:
         force = _filtered_contact_force_mag(env, cfg)
+        log[f"debug/illegal_force_{cfg.name}"] = force.max().item()
         illegal_contact = illegal_contact | (force > force_threshold)
     return illegal_contact.float()
 

@@ -12,7 +12,7 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab_assets import H1_MINIMAL_CFG
+from isaaclab_assets import H1_CFG
 from isaaclab.sensors import ContactSensorCfg
 
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
@@ -43,7 +43,8 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    robot: ArticulationCfg = H1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = H1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot.spawn.activate_contact_sensors = True
 
     ball: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Ball",
@@ -78,13 +79,62 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
     # Ground/self contact (feet_slide, one_foot_ground_contact). No filter -> the
     # multi-body regex prim_path is fine here.
     contact_forces = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link)",
+        prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link|.*_elbow_link)",
         history_length=3,
         track_air_time=True,
     )
 
     # Ball-filtered sensors: ONE per body (PhysX filter pairs unreliable on a
     # multi-body regex prim_path -> force_matrix_w read all zero). Do not merge.
+    # ---- Ball-filtered illegal-contact sensors: ONE per body ----
+    left_shoulder_pitch_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/left_shoulder_pitch_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    right_shoulder_pitch_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/right_shoulder_pitch_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    left_shoulder_roll_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/left_shoulder_roll_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    right_shoulder_roll_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/right_shoulder_roll_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    left_shoulder_yaw_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/left_shoulder_yaw_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    right_shoulder_yaw_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/right_shoulder_yaw_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    left_elbow_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/left_elbow_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
+    right_elbow_ball_contact = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/right_elbow_link",
+        history_length=3,
+        track_air_time=False,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
+    )
     left_ankle_ball_contact = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_ankle_link",
         history_length=3,
@@ -319,7 +369,7 @@ class H1JuggleRewardsCfg:
     )
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
-        weight=0.5,
+        weight=4.0,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -338,34 +388,39 @@ class H1JuggleRewardsCfg:
     # Juggling
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=30.0,
+        weight=0.0,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
-            # "min_peak_force": 25.0,   Stage 3
-            # "min_ball_vel_z": 1.2,
-            # "min_kick_interval_s": 0.4,
-            "min_peak_force": 1.0,
-            "min_ball_vel_z": 0.0,
-            "min_kick_interval_s": 0.5,
+            "min_peak_force": 25.0,
+            "min_ball_vel_z": 1.2,
+            "min_kick_interval_s": 0.4,
         },
     )
     ball_illegal_contact_penalty = RewTerm(
         func=kick_rewards.ball_illegal_contact_penalty,
-        weight=-5.0,
+        weight=-0.0,
         params={
             "illegal_sensor_cfgs": [
                 SceneEntityCfg("pelvis_ball_contact"),
                 SceneEntityCfg("torso_ball_contact"),
                 SceneEntityCfg("left_knee_ball_contact"),
                 SceneEntityCfg("right_knee_ball_contact"),
+                SceneEntityCfg("left_shoulder_pitch_ball_contact"),
+                SceneEntityCfg("right_shoulder_pitch_ball_contact"),
+                SceneEntityCfg("left_shoulder_roll_ball_contact"),
+                SceneEntityCfg("right_shoulder_roll_ball_contact"),
+                SceneEntityCfg("left_shoulder_yaw_ball_contact"),
+                SceneEntityCfg("right_shoulder_yaw_ball_contact"),
+                SceneEntityCfg("left_elbow_ball_contact"),
+                SceneEntityCfg("right_elbow_ball_contact"),
             ],
             "force_threshold": 0.1,
         },
     )
     apex_height = RewTerm(
         func=kick_rewards.apex_height_reward,
-        weight=30.0,
+        weight=0.0,
         params={"apex_min": 0.8, "apex_max": 1.6},  # locked-constant band
     )
 
@@ -406,11 +461,11 @@ class H1JuggleTerminationsCfg:
     robot_falls = DoneTerm(func=kick_terminations.torso_height_below)
     # max_distance vs env_spacing mismatch -- see note; lower to ~3.0 before ball flies.
     robot_out_of_bounds = DoneTerm(func=kick_terminations.robot_out_of_bounds)
-    ball_on_ground = DoneTerm(
-        func=kick_terminations.ball_on_ground_timeout,
-        time_out=False,
-        params={"delay_s": 0.0, "ground_height": 0.15},
-    )
+    # ball_on_ground = DoneTerm(
+    #     func=kick_terminations.ball_on_ground_timeout,
+    #     time_out=False,
+    #     params={"delay_s": 0.0, "ground_height": 0.15},
+    # )
 
 
 @configclass
@@ -436,7 +491,8 @@ class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
         self.decimation = 4
         self.sim.dt = 0.005
         self.sim.physx.solver_type = 1
-        self.sim.physx.num_position_iterations = 8
-        self.sim.physx.num_velocity_iterations = 1
+        self.scene.robot.spawn.articulation_props.solver_position_iteration_count = 8
+        self.scene.robot.spawn.articulation_props.solver_velocity_iteration_count = 1
+        self.scene.ball.spawn.rigid_props.solver_position_iteration_count = 8
         self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.gpu_collision_stack_size = 2**26
