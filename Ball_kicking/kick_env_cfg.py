@@ -68,7 +68,10 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
         # Pre-reset spawn (reset_ball re-places it every episode). y=-0.08 = robot's
         # right (right-foot side), matching reset_ball's lateral_offset=0.08.
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.075, 0.24)),
+        # NOTE: with randomize_side=True on reset_ball below, actual per-episode side
+        # is randomized -- this init_state is only the very first pre-reset pose.
+        # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.075, 0.24)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.075, 3.0)),
     )
 
     light = AssetBaseCfg(
@@ -264,21 +267,28 @@ class H1JuggleEventCfg:
     # height_offset=0.3. STAGE 2+: reduce further / randomize.
     # lateral_offset > 0 shifts the ball toward the robot's RIGHT (right-foot side)
     # so it sits under the kicking foot's swing arc, which is off-centre in y.
+    # randomize_side=True: the SIGN of lateral_offset is randomized per env per
+    # episode (magnitude unchanged) -- this is what actually drives bilateral
+    # training. Also sets env.active_leg directly per env from the spawn side (see
+    # reset_ball_state docstring in kick_events.py). Without this flag, every env
+    # spawns on the fixed right side and active_leg never becomes left.
     reset_ball = EventTerm(
         func=kick_events.reset_ball_state,
         mode="reset",
         params={
-            "distance_offset": 0.47,
+            "distance_offset": 0.0,
             "lateral_offset": 0.075,
-            "height_offset": 0.24,
+            "height_offset": 3.0,
+            "randomize_side": True,
         },
     )
 
     # STAGE 0/1: min_height parks/pins the ball on Z. STAGE 2: DISABLE this whole
     # term so the ball flies on contact.
-    # follow_robot=True: ball tracks the robot (stays distance_offset in front as
-    # it walks/turns), reusing reset_ball's distance_offset. Set False to pin the
-    # ball at its fixed spawn anchor instead.
+    # follow_robot=True: ball tracks the robot (stays distance_offset in front, on
+    # whichever side reset_ball randomized to, as it walks/turns), reusing
+    # reset_ball's per-env distance/lateral offsets. Set follow_robot=False to pin
+    # the ball at its fixed spawn anchor instead.
     constrain_ball = EventTerm(
         func=kick_events.constrain_ball_to_z_axis,
         mode="interval",
@@ -286,7 +296,7 @@ class H1JuggleEventCfg:
         params={
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
-            "min_height": 0.24,
+            "min_height": 3.0,
             "follow_robot": True,
         },
     )
@@ -367,17 +377,28 @@ class H1JuggleRewardsCfg:
             "force_threshold": 1.0,
         },
     )
+    # Bilateral swing target. active_leg (and its ball-Y-sign hysteresis update) is
+    # computed INSIDE this reward function -- see kick_rewards.foot_swing_knee_extend.
+    # h_left/h_prime_left are PLACEHOLDERS (copied from right) -- measure the actual
+    # left hip->ankle geometry before trusting Stage 1 results (see spec §3.5).
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
         weight=4.0,
         params={
-            "asset_cfg": SceneEntityCfg(
+            "right_asset_cfg": SceneEntityCfg(
                 "robot",
                 body_names=["right_hip_pitch_link", "right_ankle_link"],
                 preserve_order=True,
             ),
-            "h": 0.7874,
-            "h_prime": 0.80,
+            "left_asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=["left_hip_pitch_link", "left_ankle_link"],
+                preserve_order=True,
+            ),
+            "h_right": 0.7874,
+            "h_prime_right": 0.80,
+            "h_left": 0.7874,  # PLACEHOLDER -- not measured
+            "h_prime_left": 0.80,  # PLACEHOLDER -- not measured
             "theta_max_deg": SWING_THETA_MAX_DEG,
             "swing_time": SWING_TIME,
             "period": SWING_PERIOD,
@@ -430,7 +451,7 @@ class H1JuggleRewardsCfg:
     # Later stage rewards
     ball_xy_force_penalty = RewTerm(
         func=kick_rewards.ball_xy_force_penalty,
-        weight=-2.0,
+        weight=0.0,
         params={
             "sensor_cfgs": [
                 SceneEntityCfg("left_ankle_ball_contact"),

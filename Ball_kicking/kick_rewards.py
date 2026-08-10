@@ -108,73 +108,130 @@ def one_foot_ground_contact(
 
 def foot_swing_knee_extend(
     env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg(
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    right_asset_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
         body_names=["right_hip_pitch_link", "right_ankle_link"],
         preserve_order=True,
     ),
-    h: float = 0.7874,  # hip->ankle, knee bent (spawn pose) — measure
-    h_prime: float = 0.80,  # hip->ankle, knee straight — measure
+    left_asset_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot",
+        body_names=["left_hip_pitch_link", "left_ankle_link"],
+        preserve_order=True,
+    ),
+    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
+    h_right: float = 0.7874,  # hip->ankle, knee bent (spawn pose) — measured
+    h_prime_right: float = 0.80,  # hip->ankle, knee straight — measured
+    h_left: float = 0.7874,  # PLACEHOLDER — NOT measured, do not trust
+    h_prime_left: float = 0.80,  # PLACEHOLDER — NOT measured, do not trust
     theta_max_deg: float = 60.0,
     swing_time: float = 0.8,  # FULL cycle: 0 -> 60 -> 0
     period: float = 0.8,  # set > swing_time to insert a rest (foot down) between kicks
     std: float = 0.15,
+    active_leg_hysteresis: float = 0.05,  # m, deadband on ball Y before flipping active leg mid-episode
 ) -> torch.Tensor:
-    """Two-phase kick-swing target, triangular in theta (up and back in swing_time).
+    """Bilateral two-phase kick-swing target, triangular in theta (up and back in swing_time).
+
+    ACTIVE LEG SELECTION: env.active_leg (0=right, 1=left) is derived here from the
+    ball's Y-position in the robot's yaw frame (Y>0 = robot's left, per H1's
+    x-forward/y-left/z-up convention). Hysteresis prevents chatter when the ball
+    sits near the midline. This is the SAME mechanism used at every stage from
+    Stage 1 onward -- Stage 1 gets a fixed-per-episode randomized Y spawn, later
+    stages let the ball actually move, but the leg-selection rule never changes.
+
+    env.active_leg is only UPDATED (hysteretically) here. It must be SET directly
+    (no hysteresis) in reset_ball_state on episode reset -- otherwise a fresh
+    spawn inherits the previous episode's active leg for up to one hysteresis band.
 
     theta(t): triangle wave 0 -> theta_max -> 0 over swing_time, then held at 0
-    until the next period boundary (rest phase if period > swing_time).
+    until the next period boundary (rest phase if period > swing_time). Same
+    formula for both legs -- only the spatial target (right vs left body pair,
+    right vs left h/h_prime) differs.
 
     Phase 1 (theta <= acos(h/h')): knee extends/re-bends, ankle drags at depth h.
         x = h * tan(theta),   z = -h
     Phase 2: straight-leg pendulum of length h'.
         x = h' * sin(theta),  z = -h' * cos(theta)
-    y target = 0 throughout.
+    y target = 0 throughout (for whichever leg is active).
 
     NOTE: swing_x/z_actual logged here are HIP-relative — do not compare them
     with the ROOT-relative positions logged by log_kinematics.
     """
-    robot: Articulation = env.scene[asset_cfg.name]
+    robot: Articulation = env.scene[robot_cfg.name]
+    ball: RigidObject = env.scene[ball_cfg.name]
 
-    # --- triangular phase variable ---
-    t = env.episode_length_buf.float() * env.step_dt
-    theta_max = math.radians(theta_max_deg)
-    t_cycle = torch.remainder(t, period)
-    p = torch.clamp(t_cycle / swing_time, max=1.0)  # 0..1 during swing, 1 during rest
-    tri = 1.0 - torch.abs(2.0 * p - 1.0)  # 0 -> 1 -> 0, stays 0 in rest
+    yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
+
+    # --- active leg: ball Y-sign in robot yaw frame, with hysteresis ---
+    if not hasattr(env, "active_leg"):
+        # Fallback only -- reset_ball_state should set this directly per env
+        # before this ever gets read in normal operation.
+        env.active_leg = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+
+    ball_rel_w = ball.data.root_pos_w - robot.data.root_pos_w
+    ball_rel_b = math_utils.quat_apply_inverse(yaw_quat, ball_rel_w)
+    ball_y = ball_rel_b[:, 1]
+
+    switch_to_left = (ball_y > active_leg_hysteresis) & (env.active_leg == 0)
+    switch_to_right = (ball_y < -active_leg_hysteresis) & (env.active_leg == 1)
+    env.active_leg = torch.where(
+        switch_to_left, torch.ones_like(env.active_leg), env.active_leg
+    )
+    env.active_leg = torch.where(
+        switch_to_right, torch.zeros_like(env.active_leg), env.active_leg
+    )
+    active_leg_is_left = env.active_leg == 1
+
+    # --- shared triangular phase variable ---
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
 
-    # --- piecewise target (hip-relative, yaw frame) ---
-    theta_c = math.acos(h / h_prime)
-    phase1 = theta <= theta_c
+    def _leg_error(asset_cfg: SceneEntityCfg, h: float, h_prime: float):
+        theta_c = math.acos(h / h_prime)
+        phase1 = theta <= theta_c
+        x_target = torch.where(phase1, h * torch.tan(theta), h_prime * torch.sin(theta))
+        z_target = torch.where(
+            phase1, torch.full_like(theta, -h), -h_prime * torch.cos(theta)
+        )
 
-    x_target = torch.where(phase1, h * torch.tan(theta), h_prime * torch.sin(theta))
-    z_target = torch.where(
-        phase1, torch.full_like(theta, -h), -h_prime * torch.cos(theta)
+        body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+        hip_pos_w = body_pos_w[:, 0, :]
+        ankle_pos_w = body_pos_w[:, 1, :]
+        rel_w = ankle_pos_w - hip_pos_w
+        rel_b = math_utils.quat_apply_inverse(yaw_quat, rel_w)
+
+        err = (
+            torch.square(rel_b[:, 0] - x_target)
+            + torch.square(rel_b[:, 1])  # y = 0 constraint
+            + torch.square(rel_b[:, 2] - z_target)
+        )
+        return err, x_target, z_target, rel_b
+
+    err_right, x_target_right, z_target_right, rel_b_right = _leg_error(
+        right_asset_cfg, h_right, h_prime_right
+    )
+    err_left, x_target_left, z_target_left, rel_b_left = _leg_error(
+        left_asset_cfg, h_left, h_prime_left
     )
 
-    # --- actual ankle position relative to hip pitch link, yaw frame ---
-    body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
-    hip_pos_w = body_pos_w[:, 0, :]
-    ankle_pos_w = body_pos_w[:, 1, :]
+    err = torch.where(active_leg_is_left, err_left, err_right)
 
-    rel_w = ankle_pos_w - hip_pos_w
-    yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
-    rel_b = math_utils.quat_apply_inverse(yaw_quat, rel_w)
-
-    err = (
-        torch.square(rel_b[:, 0] - x_target)
-        + torch.square(rel_b[:, 1])  # y = 0 constraint
-        + torch.square(rel_b[:, 2] - z_target)
-    )
+    # --- diagnostics: selected (active-leg) values, so logs reflect whichever
+    # leg each env is actually being scored against this step ---
+    sel_x_target = torch.where(active_leg_is_left, x_target_left, x_target_right)
+    sel_z_target = torch.where(active_leg_is_left, z_target_left, z_target_right)
+    sel_x_actual = torch.where(active_leg_is_left, rel_b_left[:, 0], rel_b_right[:, 0])
+    sel_z_actual = torch.where(active_leg_is_left, rel_b_left[:, 2], rel_b_right[:, 2])
+    sel_y_actual = torch.where(active_leg_is_left, rel_b_left[:, 1], rel_b_right[:, 1])
 
     log = env.extras.setdefault("log", {})
     log["debug/swing_theta_deg"] = math.degrees(theta.mean().item())
-    log["debug/swing_x_target"] = x_target.mean().item()
-    log["debug/swing_x_actual"] = rel_b[:, 0].mean().item()
-    log["debug/swing_z_target"] = z_target.mean().item()
-    log["debug/swing_z_actual"] = rel_b[:, 2].mean().item()
-    log["debug/swing_y_actual"] = rel_b[:, 1].mean().item()
+    log["debug/swing_x_target"] = sel_x_target.mean().item()
+    log["debug/swing_x_actual"] = sel_x_actual.mean().item()
+    log["debug/swing_z_target"] = sel_z_target.mean().item()
+    log["debug/swing_z_actual"] = sel_z_actual.mean().item()
+    log["debug/swing_y_actual"] = sel_y_actual.mean().item()
+    log["debug/active_leg_frac"] = active_leg_is_left.float().mean().item()
+    log["debug/ball_y_robot_frame"] = ball_y.mean().item()
 
     return torch.exp(-err / std**2)
 
