@@ -66,12 +66,8 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
                 restitution=0.8,
             ),
         ),
-        # Pre-reset spawn (reset_ball re-places it every episode). y=-0.08 = robot's
-        # right (right-foot side), matching reset_ball's lateral_offset=0.08.
-        # NOTE: with randomize_side=True on reset_ball below, actual per-episode side
-        # is randomized -- this init_state is only the very first pre-reset pose.
-        # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.47, -0.075, 0.24)),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.075, 3.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.69, -0.075, 0.45)),
+        # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.075, 3.0)),
     )
 
     light = AssetBaseCfg(
@@ -79,16 +75,12 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0),
     )
 
-    # Ground/self contact (feet_slide, one_foot_ground_contact). No filter -> the
-    # multi-body regex prim_path is fine here.
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link|.*_elbow_link)",
         history_length=3,
         track_air_time=True,
     )
 
-    # Ball-filtered sensors: ONE per body (PhysX filter pairs unreliable on a
-    # multi-body regex prim_path -> force_matrix_w read all zero). Do not merge.
     # ---- Ball-filtered illegal-contact sensors: ONE per body ----
     left_shoulder_pitch_ball_contact = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_shoulder_pitch_link",
@@ -216,7 +208,6 @@ class H1JuggleObservationsCfg:
         )
         # REQUIRED for foot_swing_knee_extend -- without it the triangular swing
         # target is unobservable and unlearnable. theta_max_deg/swing_time/period
-        # MUST match the foot_swing_knee_extend RewTerm params below exactly.
         swing_phase = ObsTerm(
             func=kick_observations.swing_phase,
             params={
@@ -265,32 +256,17 @@ class H1JuggleEventCfg:
         params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
 
-    # STAGE 0: park overhead (0 forward, 3 up). STAGE 1: distance_offset=0.5-1.0,
-    # height_offset=0.3. STAGE 2+: reduce further / randomize.
-    # lateral_offset > 0 shifts the ball toward the robot's RIGHT (right-foot side)
-    # so it sits under the kicking foot's swing arc, which is off-centre in y.
-    # randomize_side=True: the SIGN of lateral_offset is randomized per env per
-    # episode (magnitude unchanged) -- this is what actually drives bilateral
-    # training. Also sets env.active_leg directly per env from the spawn side (see
-    # reset_ball_state docstring in kick_events.py). Without this flag, every env
-    # spawns on the fixed right side and active_leg never becomes left.
     reset_ball = EventTerm(
         func=kick_events.reset_ball_state,
         mode="reset",
         params={
-            "distance_offset": 0.0,
+            "distance_offset": 0.69,
             "lateral_offset": 0.075,
-            "height_offset": 3.0,
+            "height_offset": 0.45,
             "randomize_side": True,
         },
     )
 
-    # STAGE 0/1: min_height parks/pins the ball on Z. STAGE 2: DISABLE this whole
-    # term so the ball flies on contact.
-    # follow_robot=True: ball tracks the robot (stays distance_offset in front, on
-    # whichever side reset_ball randomized to, as it walks/turns), reusing
-    # reset_ball's per-env distance/lateral offsets. Set follow_robot=False to pin
-    # the ball at its fixed spawn anchor instead.
     constrain_ball = EventTerm(
         func=kick_events.constrain_ball_to_z_axis,
         mode="interval",
@@ -298,7 +274,7 @@ class H1JuggleEventCfg:
         params={
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
-            "min_height": 3.0,
+            "min_height": 0.45,
             "follow_robot": True,
         },
     )
@@ -379,10 +355,6 @@ class H1JuggleRewardsCfg:
             "force_threshold": 1.0,
         },
     )
-    # Bilateral swing target. active_leg (and its ball-Y-sign hysteresis update) is
-    # computed INSIDE this reward function -- see kick_rewards.foot_swing_knee_extend.
-    # h_left/h_prime_left are PLACEHOLDERS (copied from right) -- measure the actual
-    # left hip->ankle geometry before trusting Stage 1 results (see spec §3.5).
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
         weight=4.0,
@@ -399,8 +371,8 @@ class H1JuggleRewardsCfg:
             ),
             "h_right": 0.7384,
             "h_prime_right": 0.80,
-            "h_left": 0.7384,  # PLACEHOLDER -- not measured
-            "h_prime_left": 0.80,  # PLACEHOLDER -- not measured
+            "h_left": 0.7384,
+            "h_prime_left": 0.80,
             "theta_max_deg": SWING_THETA_MAX_DEG,
             "swing_time": SWING_TIME,
             "period": SWING_PERIOD,
@@ -411,18 +383,18 @@ class H1JuggleRewardsCfg:
     # Juggling
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=0.0,
+        weight=20.0,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
-            "min_peak_force": 25.0,
-            "min_ball_vel_z": 1.2,
-            "min_kick_interval_s": 0.4,
+            "min_peak_force": 1.0,
+            "min_ball_vel_z": 0.0,
+            "min_kick_interval_s": 0.5,
         },
     )
     ball_illegal_contact_penalty = RewTerm(
         func=kick_rewards.ball_illegal_contact_penalty,
-        weight=-0.0,
+        weight=-5.0,
         params={
             "illegal_sensor_cfgs": [
                 SceneEntityCfg("pelvis_ball_contact"),
@@ -443,8 +415,8 @@ class H1JuggleRewardsCfg:
     )
     apex_height = RewTerm(
         func=kick_rewards.apex_height_reward,
-        weight=0.0,
-        params={"apex_min": 0.8, "apex_max": 1.6},  # locked-constant band
+        weight=20.0,
+        params={"apex_min": 0.8, "apex_max": 1.6},
     )
 
     # Debug
@@ -482,7 +454,6 @@ class H1JuggleRewardsCfg:
 class H1JuggleTerminationsCfg:
     time_out = DoneTerm(func=kick_terminations.time_out, time_out=True)
     robot_falls = DoneTerm(func=kick_terminations.torso_height_below)
-    # max_distance vs env_spacing mismatch -- see note; lower to ~3.0 before ball flies.
     robot_out_of_bounds = DoneTerm(func=kick_terminations.robot_out_of_bounds)
     # ball_on_ground = DoneTerm(
     #     func=kick_terminations.ball_on_ground_timeout,

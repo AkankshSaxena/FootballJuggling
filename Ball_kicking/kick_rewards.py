@@ -13,9 +13,7 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-# ---------------------------------------------------------------------------
 # Regularization
-# ---------------------------------------------------------------------------
 def termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Flat penalty on any non-timeout termination (fall / out-of-bounds)."""
     return env.reset_terminated.float()
@@ -70,9 +68,7 @@ def feet_slide(
     return torch.sum(body_vel.norm(dim=-1) * contacts, dim=1)
 
 
-# ---------------------------------------------------------------------------
 # Stability
-# ---------------------------------------------------------------------------
 def ball_robot_dist_reward(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
@@ -88,7 +84,7 @@ def ball_robot_dist_reward(
     )
     log = env.extras.setdefault("log", {})
     log["debug/robot_ball_dist"] = dist.mean().item()
-    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.50)
+    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.78)
 
 
 def one_foot_ground_contact(
@@ -122,57 +118,39 @@ def foot_swing_knee_extend(
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
     h_right: float = 0.7874,  # hip->ankle, knee bent (spawn pose) — measured
     h_prime_right: float = 0.80,  # hip->ankle, knee straight — measured
-    h_left: float = 0.7874,  # PLACEHOLDER — NOT measured, do not trust
-    h_prime_left: float = 0.80,  # PLACEHOLDER — NOT measured, do not trust
+    h_left: float = 0.7874,
+    h_prime_left: float = 0.80,
     theta_max_deg: float = 60.0,
     swing_time: float = 0.8,  # FULL cycle: 0 -> 60 -> 0
     period: float = 0.8,  # set > swing_time to insert a rest (foot down) between kicks
     std: float = 0.15,
     active_leg_hysteresis: float = 0.05,  # m, deadband on ball Y before flipping active leg mid-episode
 ) -> torch.Tensor:
-    """Bilateral two-phase kick-swing target, triangular in theta (up and back in swing_time).
-
-    ACTIVE LEG SELECTION: env.active_leg (0=right, 1=left) is derived here from the
-    ball's Y-position in the robot's yaw frame (Y>0 = robot's left, per H1's
-    x-forward/y-left/z-up convention). Hysteresis prevents chatter when the ball
-    sits near the midline. This is the SAME mechanism used at every stage from
-    Stage 1 onward -- Stage 1 gets a fixed-per-episode randomized Y spawn, later
-    stages let the ball actually move, but the leg-selection rule never changes.
-
-    env.active_leg is only UPDATED (hysteretically) here. It must be SET directly
-    (no hysteresis) in reset_ball_state on episode reset -- otherwise a fresh
-    spawn inherits the previous episode's active leg for up to one hysteresis band.
-
-    theta(t): triangle wave 0 -> theta_max -> 0 over swing_time, then held at 0
-    until the next period boundary (rest phase if period > swing_time). Same
-    formula for both legs -- only the spatial target (right vs left body pair,
-    right vs left h/h_prime) differs.
-
-    Phase 1 (theta <= acos(h/h')): knee extends/re-bends, ankle drags at depth h.
-        x = h * tan(theta),   z = -h
-    Phase 2: straight-leg pendulum of length h'.
-        x = h' * sin(theta),  z = -h' * cos(theta)
-    y target = 0 throughout (for whichever leg is active).
-
-    NOTE: swing_x/z_actual logged here are HIP-relative — do not compare them
-    with the ROOT-relative positions logged by log_kinematics.
-    """
+    """Bilateral two-phase kick-swing target, triangular in theta (up and back in swing_time)."""
     robot: Articulation = env.scene[robot_cfg.name]
     ball: RigidObject = env.scene[ball_cfg.name]
 
     yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
 
     # --- active leg: ball Y-sign in robot yaw frame, with hysteresis ---
-    # --- active leg: Even envs = Right (0), Odd envs = Left (1) ---
-    env_idx = torch.arange(env.num_envs, device=env.device)
-    active_leg_is_left = env_idx % 2 != 0
+    if not hasattr(env, "active_leg"):
+        env.active_leg = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
 
-    # Calculate ball_y purely for the logging at the end of the function
     ball_rel_w = ball.data.root_pos_w - robot.data.root_pos_w
     ball_rel_b = math_utils.quat_apply_inverse(yaw_quat, ball_rel_w)
     ball_y = ball_rel_b[:, 1]
 
-    # --- shared triangular phase variable ---
+    switch_to_left = (ball_y > active_leg_hysteresis) & (env.active_leg == 0)
+    switch_to_right = (ball_y < -active_leg_hysteresis) & (env.active_leg == 1)
+
+    env.active_leg = torch.where(
+        switch_to_left, torch.ones_like(env.active_leg), env.active_leg
+    )
+    env.active_leg = torch.where(
+        switch_to_right, torch.zeros_like(env.active_leg), env.active_leg
+    )
+    active_leg_is_left = env.active_leg == 1
+
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
 
     def _leg_error(asset_cfg: SceneEntityCfg, h: float, h_prime: float):
@@ -203,15 +181,24 @@ def foot_swing_knee_extend(
         left_asset_cfg, h_left, h_prime_left
     )
 
-    err = torch.where(active_leg_is_left, err_left, err_right)
+    # Calculate rewards for both legs
+    reward_left = torch.exp(-err_left / std**2)
+    reward_right = torch.exp(-err_right / std**2)
 
-    # --- diagnostics: selected (active-leg) values, so logs reflect whichever
-    # leg each env is actually being scored against this step ---
+    mask_left = torch.where(active_leg_is_left, 1.0, -1.0)
+    mask_right = torch.where(~active_leg_is_left, 1.0, -1.0)
+
+    masked_reward_left = reward_left * mask_left
+    masked_reward_right = reward_right * mask_right
+
+    final_reward = masked_reward_left + masked_reward_right
+
+    # --- diagnostics ---
     sel_x_target = torch.where(active_leg_is_left, x_target_left, x_target_right)
     sel_z_target = torch.where(active_leg_is_left, z_target_left, z_target_right)
     sel_x_actual = torch.where(active_leg_is_left, rel_b_left[:, 0], rel_b_right[:, 0])
-    sel_z_actual = torch.where(active_leg_is_left, rel_b_left[:, 2], rel_b_right[:, 2])
     sel_y_actual = torch.where(active_leg_is_left, rel_b_left[:, 1], rel_b_right[:, 1])
+    sel_z_actual = torch.where(active_leg_is_left, rel_b_left[:, 2], rel_b_right[:, 2])
 
     log = env.extras.setdefault("log", {})
     log["debug/swing_theta_deg"] = math.degrees(theta.mean().item())
@@ -223,12 +210,10 @@ def foot_swing_knee_extend(
     log["debug/active_leg_frac"] = active_leg_is_left.float().mean().item()
     log["debug/ball_y_robot_frame"] = ball_y.mean().item()
 
-    return torch.exp(-err / std**2)
+    return final_reward
 
 
-# ---------------------------------------------------------------------------
 # Juggling
-# ---------------------------------------------------------------------------
 def _filtered_contact_force_mag(
     env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg
 ) -> torch.Tensor:
@@ -242,9 +227,9 @@ def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
     left_sensor_cfg: SceneEntityCfg,
     right_sensor_cfg: SceneEntityCfg,
-    min_peak_force: float = 100.0,  # N — HARD strike. MEASURE carry ceiling first, set ~3-5x above.
-    min_ball_vel_z: float = 3.0,  # ball launched upward after contact
-    min_kick_interval_s: float = 0.5,  # refractory: one drag can't rack up scores
+    min_peak_force: float = 100.0,
+    min_ball_vel_z: float = 3.0,
+    min_kick_interval_s: float = 0.5,
 ) -> torch.Tensor:
     """Sparse rising-edge kick reward with anti-carry gating.
 
@@ -256,18 +241,23 @@ def ball_foot_contact_reward(
       3. BALL LAUNCHED: ball vel_z > min_ball_vel_z.
       4. REFRACTORY   : >= min_kick_interval_s since this env last scored.
     """
+    robot: Articulation = env.scene["robot"]
+    ball: RigidObject = env.scene["ball"]
+
     left_force = _filtered_contact_force_mag(env, left_sensor_cfg)
     right_force = _filtered_contact_force_mag(env, right_sensor_cfg)
 
-    # gate #1+#2: rising edge on the HARD-force signal (separation-gated by construction)
-    # gate #1+#2: rising edge on the HARD-force signal, strictly masked by target leg
-    env_idx = torch.arange(env.num_envs, device=env.device)
-    is_left_target = env_idx % 2 != 0
-    is_right_target = env_idx % 2 == 0
+    # Calculate ball's Y-position in the robot's local base frame
+    yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
+    ball_rel_w = ball.data.root_pos_w - robot.data.root_pos_w
+    ball_rel_b = math_utils.quat_apply_inverse(yaw_quat, ball_rel_w)
+    ball_y = ball_rel_b[:, 1]
 
-    left_contact = (left_force > min_peak_force) & is_left_target
-    right_contact = (right_force > min_peak_force) & is_right_target
-    any_contact = left_contact | right_contact
+    # Only reward left foot if ball is on the left, right foot if ball is on the right
+    valid_left_contact = (left_force > min_peak_force) & (ball_y > 0.0)
+    valid_right_contact = (right_force > min_peak_force) & (ball_y <= 0.0)
+
+    any_contact = valid_left_contact | valid_right_contact
 
     if not hasattr(env, "prev_ball_contact"):
         env.prev_ball_contact = torch.zeros(
@@ -278,7 +268,7 @@ def ball_foot_contact_reward(
 
     # last-contact foot bookkeeping (unchanged)
     current_contact_foot = torch.stack(
-        [left_contact.float(), right_contact.float()], dim=1
+        [valid_left_contact.float(), valid_right_contact.float()], dim=1
     )
     if not hasattr(env, "last_contact_foot"):
         env.last_contact_foot = torch.zeros(
@@ -291,7 +281,6 @@ def ball_foot_contact_reward(
     )
 
     # gate #3: ball launched upward
-    ball: RigidObject = env.scene["ball"]
     ball_going_up = ball.data.root_lin_vel_w[:, 2] > min_ball_vel_z
 
     # gate #4: refractory interval
@@ -307,7 +296,7 @@ def ball_foot_contact_reward(
         env.contact_count = torch.zeros(env.num_envs, device=env.device)
     env.contact_count += scored.float()
 
-    # --- diagnostics: this is how you set min_peak_force ---
+    # --- diagnostics ---
     log = env.extras.setdefault("log", {})
     peak = torch.maximum(left_force, right_force)  # RAW magnitude, not thresholded
     contacting = peak > 0.5
@@ -317,6 +306,7 @@ def ball_foot_contact_reward(
     )
     log["debug/new_ball_contacts"] = new_contact.float().sum().item()
     log["debug/scored_kicks"] = scored.float().sum().item()
+
     return scored.float()
 
 
@@ -360,9 +350,7 @@ def apex_height_reward(
     return (at_apex & within_bounds).float()
 
 
-# ---------------------------------------------------------------------------
-# Logging (zero-weight term — writes to env.extras["log"], returns zeros)
-# ---------------------------------------------------------------------------
+# Logging
 def log_kinematics(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
@@ -378,7 +366,7 @@ def log_kinematics(
     ),
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
 ) -> torch.Tensor:
-    """Consolidated kinematics logging. Register with weight=0.0.
+    """Consolidated kinematics logging. Register with weight=1.0 since it outputs zeros.
 
     Channels (all under debug/):
       ball_x/y/z            — ball pos, ROOT-relative, yaw-aligned base frame
@@ -394,12 +382,7 @@ def log_kinematics(
     ROOT-relative. Not directly comparable.
     """
     robot: Articulation = env.scene[robot_cfg.name]
-    ids = robot_cfg.body_ids  # order follows body_names order above
-
-    # Guard the "ids order == body_names order" assumption the channel labels and
-    # the hip_z index=4 lookup below rely on. Requires preserve_order=True on the
-    # SceneEntityCfg; without it find_bodies() returns URDF-sorted indices and the
-    # panels get silently mislabeled. Runs once (first call) to avoid per-step cost.
+    ids = robot_cfg.body_ids
     if not getattr(env, "_log_kinematics_order_checked", False):
         expected = [
             "left_ankle_link",

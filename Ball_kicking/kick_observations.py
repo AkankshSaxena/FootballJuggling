@@ -95,18 +95,7 @@ def swing_phase(
     swing_time: float = 0.8,
     period: float = 0.8,
 ) -> torch.Tensor:
-    """[sin(theta), cos(theta)] of the swing-cycle angle. (num_envs, 2).
-
-    theta is the SAME triangular 0 -> theta_max -> 0 wave used as the reward
-    target in kick_rewards.foot_swing_knee_extend, computed via the shared
-    kick_common.swing_theta helper — not a generic phase ramp.
-
-    CRITICAL: theta_max_deg / swing_time / period passed here (via the
-    ObsTerm params in kick_env_cfg.py) MUST exactly match the values passed
-    to the foot_swing_knee_extend RewTerm. A mismatch desyncs what the
-    policy observes from what it is rewarded for tracking, with no error
-    thrown — verify both param dicts side by side after any edit.
-    """
+    """Normalized swing phase variable [sin(theta), cos(theta)] for the target leg. (num_envs, 2)."""
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
     return torch.stack([torch.sin(theta), torch.cos(theta)], dim=-1)
 
