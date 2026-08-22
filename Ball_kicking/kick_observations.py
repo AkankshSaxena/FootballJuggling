@@ -15,13 +15,6 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-def target_leg_command(env: ManagerBasedRLEnv) -> torch.Tensor:
-    env_idx = torch.arange(env.num_envs, device=env.device)
-    # 1.0 for even envs (Right), -1.0 for odd envs (Left)
-    command = torch.where(env_idx % 2 == 0, 1.0, -1.0)
-    return command.unsqueeze(1)
-
-
 def ball_position_in_robot_frame(
     env: ManagerBasedRLEnv,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),

@@ -84,7 +84,7 @@ def ball_robot_dist_reward(
     )
     log = env.extras.setdefault("log", {})
     log["debug/robot_ball_dist"] = dist.mean().item()
-    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.78)
+    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.64)
 
 
 def one_foot_ground_contact(
@@ -104,113 +104,91 @@ def one_foot_ground_contact(
 
 def foot_swing_knee_extend(
     env: ManagerBasedRLEnv,
-    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    right_asset_cfg: SceneEntityCfg = SceneEntityCfg(
+    asset_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
         body_names=["right_hip_pitch_link", "right_ankle_link"],
         preserve_order=True,
     ),
-    left_asset_cfg: SceneEntityCfg = SceneEntityCfg(
-        "robot",
-        body_names=["left_hip_pitch_link", "left_ankle_link"],
-        preserve_order=True,
-    ),
-    ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
-    h_right: float = 0.7874,  # hip->ankle, knee bent (spawn pose) — measured
-    h_prime_right: float = 0.80,  # hip->ankle, knee straight — measured
-    h_left: float = 0.7874,
-    h_prime_left: float = 0.80,
+    h: float = 0.7874,
+    h_prime: float = 0.80,
     theta_max_deg: float = 60.0,
-    swing_time: float = 0.8,  # FULL cycle: 0 -> 60 -> 0
-    period: float = 0.8,  # set > swing_time to insert a rest (foot down) between kicks
+    swing_time: float = 0.8,
+    period: float = 0.8,
     std: float = 0.15,
-    active_leg_hysteresis: float = 0.05,  # m, deadband on ball Y before flipping active leg mid-episode
 ) -> torch.Tensor:
-    """Bilateral two-phase kick-swing target, triangular in theta (up and back in swing_time)."""
-    robot: Articulation = env.scene[robot_cfg.name]
-    ball: RigidObject = env.scene[ball_cfg.name]
+    """Two-phase kick-swing target, triangular in theta (up and back in swing_time)."""
+    robot: Articulation = env.scene[asset_cfg.name]
 
-    yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
-
-    # --- active leg: ball Y-sign in robot yaw frame, with hysteresis ---
-    if not hasattr(env, "active_leg"):
-        env.active_leg = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
-
-    ball_rel_w = ball.data.root_pos_w - robot.data.root_pos_w
-    ball_rel_b = math_utils.quat_apply_inverse(yaw_quat, ball_rel_w)
-    ball_y = ball_rel_b[:, 1]
-
-    switch_to_left = (ball_y > active_leg_hysteresis) & (env.active_leg == 0)
-    switch_to_right = (ball_y < -active_leg_hysteresis) & (env.active_leg == 1)
-
-    env.active_leg = torch.where(
-        switch_to_left, torch.ones_like(env.active_leg), env.active_leg
-    )
-    env.active_leg = torch.where(
-        switch_to_right, torch.zeros_like(env.active_leg), env.active_leg
-    )
-    active_leg_is_left = env.active_leg == 1
-
+    # --- triangular phase variable ---
+    t = env.episode_length_buf.float() * env.step_dt
+    theta_max = math.radians(theta_max_deg)
+    t_cycle = torch.remainder(t, period)
+    p = torch.clamp(t_cycle / swing_time, max=1.0)  # 0..1 during swing, 1 during rest
+    tri = 1.0 - torch.abs(2.0 * p - 1.0)  # 0 -> 1 -> 0, stays 0 in rest
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
 
-    def _leg_error(asset_cfg: SceneEntityCfg, h: float, h_prime: float):
-        theta_c = math.acos(h / h_prime)
-        phase1 = theta <= theta_c
-        x_target = torch.where(phase1, h * torch.tan(theta), h_prime * torch.sin(theta))
-        z_target = torch.where(
-            phase1, torch.full_like(theta, -h), -h_prime * torch.cos(theta)
-        )
+    # --- piecewise target (hip-relative, yaw frame) ---
+    theta_c = math.acos(h / h_prime)
+    phase1 = theta <= theta_c
 
-        body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
-        hip_pos_w = body_pos_w[:, 0, :]
-        ankle_pos_w = body_pos_w[:, 1, :]
-        rel_w = ankle_pos_w - hip_pos_w
-        rel_b = math_utils.quat_apply_inverse(yaw_quat, rel_w)
-
-        err = (
-            torch.square(rel_b[:, 0] - x_target)
-            + torch.square(rel_b[:, 1])  # y = 0 constraint
-            + torch.square(rel_b[:, 2] - z_target)
-        )
-        return err, x_target, z_target, rel_b
-
-    err_right, x_target_right, z_target_right, rel_b_right = _leg_error(
-        right_asset_cfg, h_right, h_prime_right
-    )
-    err_left, x_target_left, z_target_left, rel_b_left = _leg_error(
-        left_asset_cfg, h_left, h_prime_left
+    x_target = torch.where(phase1, h * torch.tan(theta), h_prime * torch.sin(theta))
+    z_target = torch.where(
+        phase1, torch.full_like(theta, -h), -h_prime * torch.cos(theta)
     )
 
-    # Calculate rewards for both legs
-    reward_left = torch.exp(-err_left / std**2)
-    reward_right = torch.exp(-err_right / std**2)
+    # --- actual ankle position relative to hip pitch link, yaw frame ---
+    body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+    hip_pos_w = body_pos_w[:, 0, :]
+    ankle_pos_w = body_pos_w[:, 1, :]
 
-    mask_left = torch.where(active_leg_is_left, 1.0, -1.0)
-    mask_right = torch.where(~active_leg_is_left, 1.0, -1.0)
+    rel_w = ankle_pos_w - hip_pos_w
+    yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
+    rel_b = math_utils.quat_apply_inverse(yaw_quat, rel_w)
 
-    masked_reward_left = reward_left * mask_left
-    masked_reward_right = reward_right * mask_right
+    err = (
+        torch.square(rel_b[:, 0] - x_target)
+        + torch.square(rel_b[:, 1])  # y = 0 constraint
+        + torch.square(rel_b[:, 2] - z_target)
+    )
 
-    final_reward = masked_reward_left + masked_reward_right
+    if not hasattr(env, "max_swing_x_actual"):
+        env.max_swing_x_actual = torch.full((env.num_envs,), -1e9, device=env.device)
+        env.max_swing_y_actual = torch.full((env.num_envs,), -1e9, device=env.device)
+        env.max_swing_z_actual = torch.full((env.num_envs,), -1e9, device=env.device)
+        env.max_swing_theta = torch.full((env.num_envs,), -1e9, device=env.device)
 
-    # --- diagnostics ---
-    sel_x_target = torch.where(active_leg_is_left, x_target_left, x_target_right)
-    sel_z_target = torch.where(active_leg_is_left, z_target_left, z_target_right)
-    sel_x_actual = torch.where(active_leg_is_left, rel_b_left[:, 0], rel_b_right[:, 0])
-    sel_y_actual = torch.where(active_leg_is_left, rel_b_left[:, 1], rel_b_right[:, 1])
-    sel_z_actual = torch.where(active_leg_is_left, rel_b_left[:, 2], rel_b_right[:, 2])
+    # 2. Reset trackers for environments that just finished their episode
+    reset_env_ids = env.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+    if len(reset_env_ids) > 0:
+        env.max_swing_x_actual[reset_env_ids] = -1e9
+        env.max_swing_y_actual[reset_env_ids] = -1e9
+        env.max_swing_z_actual[reset_env_ids] = -1e9
+        env.max_swing_theta[reset_env_ids] = -1e9
 
+    # 3. Update the max values for the current step across all environments
+    env.max_swing_x_actual = torch.maximum(env.max_swing_x_actual, rel_b[:, 0])
+    env.max_swing_y_actual = torch.maximum(env.max_swing_y_actual, rel_b[:, 1])
+    env.max_swing_z_actual = torch.maximum(env.max_swing_z_actual, rel_b[:, 2])
+    env.max_swing_theta = torch.maximum(env.max_swing_theta, theta)
+
+    # 4. Standard step-level logging
     log = env.extras.setdefault("log", {})
     log["debug/swing_theta_deg"] = math.degrees(theta.mean().item())
-    log["debug/swing_x_target"] = sel_x_target.mean().item()
-    log["debug/swing_x_actual"] = sel_x_actual.mean().item()
-    log["debug/swing_z_target"] = sel_z_target.mean().item()
-    log["debug/swing_z_actual"] = sel_z_actual.mean().item()
-    log["debug/swing_y_actual"] = sel_y_actual.mean().item()
-    log["debug/active_leg_frac"] = active_leg_is_left.float().mean().item()
-    log["debug/ball_y_robot_frame"] = ball_y.mean().item()
+    log["debug/swing_x_target"] = x_target.mean().item()
+    log["debug/swing_x_actual"] = rel_b[:, 0].mean().item()
+    log["debug/swing_z_target"] = z_target.mean().item()
+    log["debug/swing_z_actual"] = rel_b[:, 2].mean().item()
+    log["debug/swing_y_actual"] = rel_b[:, 1].mean().item()
 
-    return final_reward
+    # 5. Log the MEAN of the MAXIMUMS achieved in the episode
+    log["debug/swing_x_actual_mean_max"] = env.max_swing_x_actual.mean().item()
+    log["debug/swing_y_actual_mean_max"] = env.max_swing_y_actual.mean().item()
+    log["debug/swing_z_actual_mean_max"] = env.max_swing_z_actual.mean().item()
+    log["debug/swing_theta_mean_max_deg"] = math.degrees(
+        env.max_swing_theta.mean().item()
+    )
+
+    return torch.exp(-err / std**2)
 
 
 # Juggling
@@ -227,9 +205,9 @@ def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
     left_sensor_cfg: SceneEntityCfg,
     right_sensor_cfg: SceneEntityCfg,
-    min_peak_force: float = 100.0,
-    min_ball_vel_z: float = 3.0,
-    min_kick_interval_s: float = 0.5,
+    min_peak_force: float = 100.0,  # N — HARD strike. MEASURE carry ceiling first, set ~3-5x above.
+    min_ball_vel_z: float = 3.0,  # ball launched upward after contact
+    min_kick_interval_s: float = 0.5,  # refractory: one drag can't rack up scores
 ) -> torch.Tensor:
     """Sparse rising-edge kick reward with anti-carry gating.
 
@@ -241,23 +219,13 @@ def ball_foot_contact_reward(
       3. BALL LAUNCHED: ball vel_z > min_ball_vel_z.
       4. REFRACTORY   : >= min_kick_interval_s since this env last scored.
     """
-    robot: Articulation = env.scene["robot"]
-    ball: RigidObject = env.scene["ball"]
-
     left_force = _filtered_contact_force_mag(env, left_sensor_cfg)
     right_force = _filtered_contact_force_mag(env, right_sensor_cfg)
 
-    # Calculate ball's Y-position in the robot's local base frame
-    yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
-    ball_rel_w = ball.data.root_pos_w - robot.data.root_pos_w
-    ball_rel_b = math_utils.quat_apply_inverse(yaw_quat, ball_rel_w)
-    ball_y = ball_rel_b[:, 1]
-
-    # Only reward left foot if ball is on the left, right foot if ball is on the right
-    valid_left_contact = (left_force > min_peak_force) & (ball_y > 0.0)
-    valid_right_contact = (right_force > min_peak_force) & (ball_y <= 0.0)
-
-    any_contact = valid_left_contact | valid_right_contact
+    # gate #1+#2: rising edge on the HARD-force signal (separation-gated by construction)
+    left_contact = left_force > min_peak_force
+    right_contact = right_force > min_peak_force
+    any_contact = left_contact | right_contact
 
     if not hasattr(env, "prev_ball_contact"):
         env.prev_ball_contact = torch.zeros(
@@ -268,7 +236,7 @@ def ball_foot_contact_reward(
 
     # last-contact foot bookkeeping (unchanged)
     current_contact_foot = torch.stack(
-        [valid_left_contact.float(), valid_right_contact.float()], dim=1
+        [left_contact.float(), right_contact.float()], dim=1
     )
     if not hasattr(env, "last_contact_foot"):
         env.last_contact_foot = torch.zeros(
@@ -281,6 +249,7 @@ def ball_foot_contact_reward(
     )
 
     # gate #3: ball launched upward
+    ball: RigidObject = env.scene["ball"]
     ball_going_up = ball.data.root_lin_vel_w[:, 2] > min_ball_vel_z
 
     # gate #4: refractory interval
@@ -306,7 +275,6 @@ def ball_foot_contact_reward(
     )
     log["debug/new_ball_contacts"] = new_contact.float().sum().item()
     log["debug/scored_kicks"] = scored.float().sum().item()
-
     return scored.float()
 
 
