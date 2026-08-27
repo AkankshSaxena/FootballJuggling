@@ -84,7 +84,7 @@ def ball_robot_dist_reward(
     )
     log = env.extras.setdefault("log", {})
     log["debug/robot_ball_dist"] = dist.mean().item()
-    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.64)
+    return torch.clamp(torch.exp(-torch.square(dist - kick_range) / std**2), max=0.655)
 
 
 def one_foot_ground_contact(
@@ -205,9 +205,14 @@ def ball_foot_contact_reward(
     env: ManagerBasedRLEnv,
     left_sensor_cfg: SceneEntityCfg,
     right_sensor_cfg: SceneEntityCfg,
-    min_peak_force: float = 100.0,  # N — HARD strike. MEASURE carry ceiling first, set ~3-5x above.
-    min_ball_vel_z: float = 3.0,  # ball launched upward after contact
-    min_kick_interval_s: float = 0.5,  # refractory: one drag can't rack up scores
+    min_peak_force: float = 100.0,
+    min_ball_vel_z: float = 3.0,
+    min_kick_interval_s: float = 0.5,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot",
+        body_names=["left_ankle_link", "right_ankle_link"],
+        preserve_order=True,
+    ),
 ) -> torch.Tensor:
     """Sparse rising-edge kick reward with anti-carry gating.
 
@@ -275,6 +280,27 @@ def ball_foot_contact_reward(
     )
     log["debug/new_ball_contacts"] = new_contact.float().sum().item()
     log["debug/scored_kicks"] = scored.float().sum().item()
+
+    # --- kick contact location along foot ---
+    robot: Articulation = env.scene[robot_cfg.name]
+    ids = robot_cfg.body_ids
+    ankle_pos_w = robot.data.body_pos_w[:, ids, :]  # (N, 2, 3)  [left, right]
+    ankle_quat_w = robot.data.body_quat_w[:, ids, :]  # (N, 2, 4)
+
+    idx = torch.arange(env.num_envs, device=env.device)
+    sel = right_contact.long()  # 0=left, 1=right
+    a_pos = ankle_pos_w[idx, sel]
+    a_quat = ankle_quat_w[idx, sel]
+
+    rel_foot = math_utils.quat_apply_inverse(a_quat, ball.data.root_pos_w - a_pos)
+
+    m = scored & (left_contact ^ right_contact)  # single-foot scored frames only
+    if m.any():
+        log["debug/kick_offset_x"] = rel_foot[m, 0].mean().item()
+        log["debug/kick_offset_y"] = rel_foot[m, 1].mean().item()
+        log["debug/kick_offset_z"] = rel_foot[m, 2].mean().item()
+        log["debug/kick_offset_n"] = m.float().sum().item()
+
     return scored.float()
 
 
