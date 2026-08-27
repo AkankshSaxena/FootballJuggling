@@ -93,6 +93,8 @@ def constrain_ball_to_z_axis(
     follow_robot: bool = True,
     distance_offset: float | None = None,
     lateral_offset: float | None = None,
+    pin_x: bool = True,
+    pin_y: bool = True,
 ) -> None:
     """Pin the ball's xy so only Z (fall/bounce) is free."""
     ball: RigidObject = env.scene[ball_cfg.name]
@@ -119,8 +121,12 @@ def constrain_ball_to_z_axis(
     elif not hasattr(env, "ball_anchor_xy"):
         env.ball_anchor_xy = ball_pos[:, :2].clone()  # fallback for first step
 
-    ball_pos[:, :2] = env.ball_anchor_xy
-    ball_lin_vel[:, :2] = 0.0
+    if pin_x:
+        ball_pos[:, 0] = env.ball_anchor_xy[:, 0]
+        ball_lin_vel[:, 0] = 0.0
+    if pin_y:
+        ball_pos[:, 1] = env.ball_anchor_xy[:, 1]
+        ball_lin_vel[:, 1] = 0.0
 
     at_floor = ball_pos[:, 2] < min_height
     ball_pos[:, 2] = torch.clamp(ball_pos[:, 2], min=min_height)

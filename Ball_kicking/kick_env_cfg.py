@@ -272,6 +272,8 @@ class H1JuggleEventCfg:
             "robot_cfg": SceneEntityCfg("robot"),
             "min_height": 0.0,  # 0.25 s2, # 0.0 s3
             "follow_robot": False,  # True
+            "pin_x": False,
+            "pin_y": True,
         },
     )
 
@@ -419,7 +421,7 @@ class H1JuggleRewardsCfg:
     # Later stage rewards
     ball_xy_force_penalty = RewTerm(
         func=kick_rewards.ball_xy_force_penalty,
-        weight=0.0,
+        weight=-2.0,  # 0.0,
         params={
             "sensor_cfgs": [
                 SceneEntityCfg("left_ankle_ball_contact"),
@@ -430,12 +432,12 @@ class H1JuggleRewardsCfg:
     )
     track_ball_vel_xy = RewTerm(
         func=kick_rewards.track_ball_vel_xy_exp,
-        weight=0.0,
+        weight=1.0,  # 0.0,
         params={"std": 0.5},
     )
     track_ball_pos_xy = RewTerm(
         func=kick_rewards.track_ball_pos_xy_exp,
-        weight=0.0,
+        weight=1.0,  # 0.0,
         params={"std": 0.5, "reach": 0.5},
     )
     alternate_foot_bonus = RewTerm(
