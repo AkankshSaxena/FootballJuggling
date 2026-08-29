@@ -150,7 +150,7 @@ def constrain_ball_to_z_axis(
 
 
 def ball_gravity_scale(env, env_ids, k: float = 0.25, ball_cfg=SceneEntityCfg("ball")):
-    """Upward force cancelling (1-k) of the ball's weight -> g_eff = k*9.81."""
+    """Upward force cancelling (1-k) of the ball's weight - g_eff = k*9.81."""
     ball = env.scene[ball_cfg.name]
     m = ball.data.default_mass.to(env.device)  # (N,1)
     f = torch.zeros((env.num_envs, 1, 3), device=env.device)

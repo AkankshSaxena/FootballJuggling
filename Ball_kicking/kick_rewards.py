@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 # Regularization
 def termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Flat penalty on any non-timeout termination (fall / out-of-bounds)."""
     return env.reset_terminated.float()
 
 
@@ -24,7 +23,7 @@ def track_lin_vel_xy_exp(
     std: float,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Reward zero base XY velocity (stationary juggle; no pull toward ball)."""
+    """Reward zero base XY velocity."""
     robot: Articulation = env.scene[robot_cfg.name]
     v_xy = robot.data.root_lin_vel_w[:, :2]
     err = torch.sum(torch.square(v_xy), dim=1)
@@ -36,7 +35,7 @@ def track_ang_vel_z_exp(
     std: float,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Reward zero yaw rate (straight-facing posture)."""
+    """Reward zero yaw rate."""
     robot: Articulation = env.scene[robot_cfg.name]
     err = torch.square(robot.data.root_ang_vel_w[:, 2])
     return torch.exp(-err / std**2)
@@ -45,7 +44,7 @@ def track_ang_vel_z_exp(
 def lin_vel_z_l2(
     env: ManagerBasedRLEnv, robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Penalize vertical base velocity (anti-bounce)."""
+    """Penalize vertical base velocity."""
     robot: Articulation = env.scene[robot_cfg.name]
     return torch.square(robot.data.root_lin_vel_b[:, 2])
 
@@ -76,7 +75,6 @@ def ball_robot_dist_reward(
     kick_range: float = 0.0,
     std: float = 1.0,
 ) -> torch.Tensor:
-    """Reward standing at kick_range from the ball (peaks at kick_range)."""
     ball: RigidObject = env.scene[ball_cfg.name]
     robot: Articulation = env.scene[robot_cfg.name]
     dist = torch.norm(
@@ -92,7 +90,7 @@ def one_foot_ground_contact(
     sensor_cfg: SceneEntityCfg,
     force_threshold: float = 1.0,
 ) -> torch.Tensor:
-    """Reward having >=1 foot on the ground (anti-hop; NOT a stability guarantee)."""
+    """Reward having 1 foot on the ground."""
     cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
     forces = (
         cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
@@ -116,18 +114,15 @@ def foot_swing_knee_extend(
     period: float = 0.8,
     std: float = 0.15,
 ) -> torch.Tensor:
-    """Two-phase kick-swing target, triangular in theta (up and back in swing_time)."""
+    """Two-phase kick-swing target."""
     robot: Articulation = env.scene[asset_cfg.name]
-
-    # --- triangular phase variable ---
     t = env.episode_length_buf.float() * env.step_dt
     theta_max = math.radians(theta_max_deg)
     t_cycle = torch.remainder(t, period)
-    p = torch.clamp(t_cycle / swing_time, max=1.0)  # 0..1 during swing, 1 during rest
-    tri = 1.0 - torch.abs(2.0 * p - 1.0)  # 0 -> 1 -> 0, stays 0 in rest
+    p = torch.clamp(t_cycle / swing_time, max=1.0)
+    tri = 1.0 - torch.abs(2.0 * p - 1.0)
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
 
-    # --- piecewise target (hip-relative, yaw frame) ---
     theta_c = math.acos(h / h_prime)
     phase1 = theta <= theta_c
 
@@ -136,7 +131,6 @@ def foot_swing_knee_extend(
         phase1, torch.full_like(theta, -h), -h_prime * torch.cos(theta)
     )
 
-    # --- actual ankle position relative to hip pitch link, yaw frame ---
     body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
     hip_pos_w = body_pos_w[:, 0, :]
     ankle_pos_w = body_pos_w[:, 1, :]
@@ -157,21 +151,17 @@ def foot_swing_knee_extend(
         env.max_swing_z_actual = torch.full((env.num_envs,), -1e9, device=env.device)
         env.max_swing_theta = torch.full((env.num_envs,), -1e9, device=env.device)
 
-    # 2. Reset trackers for environments that just finished their episode
     reset_env_ids = env.reset_buf.nonzero(as_tuple=False).squeeze(-1)
     if len(reset_env_ids) > 0:
         env.max_swing_x_actual[reset_env_ids] = -1e9
         env.max_swing_y_actual[reset_env_ids] = -1e9
         env.max_swing_z_actual[reset_env_ids] = -1e9
         env.max_swing_theta[reset_env_ids] = -1e9
-
-    # 3. Update the max values for the current step across all environments
     env.max_swing_x_actual = torch.maximum(env.max_swing_x_actual, rel_b[:, 0])
     env.max_swing_y_actual = torch.maximum(env.max_swing_y_actual, rel_b[:, 1])
     env.max_swing_z_actual = torch.maximum(env.max_swing_z_actual, rel_b[:, 2])
     env.max_swing_theta = torch.maximum(env.max_swing_theta, theta)
 
-    # 4. Standard step-level logging
     log = env.extras.setdefault("log", {})
     log["debug/swing_theta_deg"] = math.degrees(theta.mean().item())
     log["debug/swing_x_target"] = x_target.mean().item()
@@ -179,8 +169,6 @@ def foot_swing_knee_extend(
     log["debug/swing_z_target"] = z_target.mean().item()
     log["debug/swing_z_actual"] = rel_b[:, 2].mean().item()
     log["debug/swing_y_actual"] = rel_b[:, 1].mean().item()
-
-    # 5. Log the MEAN of the MAXIMUMS achieved in the episode
     log["debug/swing_x_actual_mean_max"] = env.max_swing_x_actual.mean().item()
     log["debug/swing_y_actual_mean_max"] = env.max_swing_y_actual.mean().item()
     log["debug/swing_z_actual_mean_max"] = env.max_swing_z_actual.mean().item()
@@ -195,7 +183,6 @@ def foot_swing_knee_extend(
 def _filtered_contact_force_mag(
     env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg
 ) -> torch.Tensor:
-    """Max ball-filtered contact force for a SINGLE-BODY sensor (force_matrix_w)."""
     sensor: ContactSensor = env.scene[sensor_cfg.name]
     forces = sensor.data.force_matrix_w_history  # (N, history, 1, 1, 3)
     return torch.norm(forces, dim=-1).sum(dim=-1).max(dim=1)[0].squeeze(-1)
@@ -214,20 +201,8 @@ def ball_foot_contact_reward(
         preserve_order=True,
     ),
 ) -> torch.Tensor:
-    """Sparse rising-edge kick reward with anti-carry gating.
-
-    Scores only when ALL hold on the same frame:
-      1. RISING EDGE  : peak force crosses min_peak_force from below -> the ball
-                        separated since the last hard contact (not a sustained carry).
-      2. HARD STRIKE  : peak filtered force >= min_peak_force. Carry ~= m*g (few N);
-                        kick spikes to 100s of N. Kills feather-touch AND bounce chatter.
-      3. BALL LAUNCHED: ball vel_z > min_ball_vel_z.
-      4. REFRACTORY   : >= min_kick_interval_s since this env last scored.
-    """
     left_force = _filtered_contact_force_mag(env, left_sensor_cfg)
     right_force = _filtered_contact_force_mag(env, right_sensor_cfg)
-
-    # gate #1+#2: rising edge on the HARD-force signal (separation-gated by construction)
     left_contact = left_force > min_peak_force
     right_contact = right_force > min_peak_force
     any_contact = left_contact | right_contact
@@ -238,8 +213,6 @@ def ball_foot_contact_reward(
         )
     new_contact = any_contact & (~env.prev_ball_contact)
     env.prev_ball_contact = any_contact.clone()
-
-    # last-contact foot bookkeeping (unchanged)
     current_contact_foot = torch.stack(
         [left_contact.float(), right_contact.float()], dim=1
     )
@@ -252,12 +225,9 @@ def ball_foot_contact_reward(
         current_contact_foot,
         env.last_contact_foot,
     )
-
-    # gate #3: ball launched upward
     ball: RigidObject = env.scene["ball"]
     ball_going_up = ball.data.root_lin_vel_w[:, 2] > min_ball_vel_z
 
-    # gate #4: refractory interval
     t = env.episode_length_buf.float() * env.step_dt
     if not hasattr(env, "last_kick_time"):
         env.last_kick_time = torch.full((env.num_envs,), -1e9, device=env.device)
@@ -270,9 +240,8 @@ def ball_foot_contact_reward(
         env.contact_count = torch.zeros(env.num_envs, device=env.device)
     env.contact_count += scored.float()
 
-    # --- diagnostics ---
     log = env.extras.setdefault("log", {})
-    peak = torch.maximum(left_force, right_force)  # RAW magnitude, not thresholded
+    peak = torch.maximum(left_force, right_force)
     contacting = peak > 0.5
     log["debug/contact_peak_force_max"] = peak.max().item()
     log["debug/contact_peak_force_mean"] = (
@@ -281,7 +250,6 @@ def ball_foot_contact_reward(
     log["debug/new_ball_contacts"] = new_contact.float().sum().item()
     log["debug/scored_kicks"] = scored.float().sum().item()
 
-    # --- kick contact location along foot ---
     robot: Articulation = env.scene[robot_cfg.name]
     ids = robot_cfg.body_ids
     ankle_pos_w = robot.data.body_pos_w[:, ids, :]  # (N, 2, 3)  [left, right]
@@ -294,7 +262,7 @@ def ball_foot_contact_reward(
 
     rel_foot = math_utils.quat_apply_inverse(a_quat, ball.data.root_pos_w - a_pos)
 
-    m = scored & (left_contact ^ right_contact)  # single-foot scored frames only
+    m = scored & (left_contact ^ right_contact)
     if m.any():
         log["debug/kick_offset_x"] = rel_foot[m, 0].mean().item()
         log["debug/kick_offset_y"] = rel_foot[m, 1].mean().item()
@@ -309,7 +277,7 @@ def ball_illegal_contact_penalty(
     illegal_sensor_cfgs: list[SceneEntityCfg],
     force_threshold: float = 0.1,
 ) -> torch.Tensor:
-    """Penalize ball contact on any non-foot body (pass one single-body sensor each)."""
+    """Penalize ball contact on any non-foot body."""
     illegal_contact = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     log = env.extras.setdefault("log", {})
     for cfg in illegal_sensor_cfgs:
@@ -325,7 +293,6 @@ def apex_height_reward(
     apex_min: float = 0.5,
     apex_max: float = 2.0,
 ) -> torch.Tensor:
-    """Fire once per flight at the Z-velocity sign flip if apex is within band."""
     ball: RigidObject = env.scene[ball_cfg.name]
     ball_pos_z = ball.data.root_pos_w[:, 2]
     ball_vel_z = ball.data.root_lin_vel_w[:, 2]
@@ -354,27 +321,12 @@ def log_kinematics(
             "right_ankle_link",
             "left_knee_link",
             "right_knee_link",
-            "right_hip_pitch_link",  # kicking-leg hip motor — verify exact name
+            "right_hip_pitch_link",
         ],
-        preserve_order=True,  # keep body_ids aligned to body_names order (see channel_names loop)
+        preserve_order=True,
     ),
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
 ) -> torch.Tensor:
-    """Consolidated kinematics logging. Register with weight=1.0 since it outputs zeros.
-
-    Channels (all under debug/):
-      ball_x/y/z            — ball pos, ROOT-relative, yaw-aligned base frame
-      left_foot_x/y/z       — left ankle, root-relative yaw frame
-      right_foot_x/y/z      — right ankle, root-relative yaw frame
-      left_knee_x/y/z       — left knee, root-relative yaw frame
-      right_knee_x/y/z      — right knee, root-relative yaw frame
-      hip_z                 — kicking-leg hip pitch link, WORLD frame height
-                              (monitors the "hip stays at h" assumption behind
-                              the phase-1 swing target z = -h)
-
-    Frame note: foot_swing_knee_extend logs HIP-relative actuals; these are
-    ROOT-relative. Not directly comparable.
-    """
     robot: Articulation = env.scene[robot_cfg.name]
     ids = robot_cfg.body_ids
     if not getattr(env, "_log_kinematics_order_checked", False):
@@ -394,7 +346,6 @@ def log_kinematics(
         )
         env._log_kinematics_order_checked = True
 
-    # --- transform all tracked bodies into root-relative yaw frame ---
     pos_w = robot.data.body_pos_w[:, ids, :]  # (N, 5, 3)
     root_to = pos_w - robot.data.root_pos_w.unsqueeze(1)
     yaw = (
@@ -406,17 +357,13 @@ def log_kinematics(
 
     log = env.extras.setdefault("log", {})
 
-    # index i matches body_names order in robot_cfg
     channel_names = ["left_foot", "right_foot", "left_knee", "right_knee"]
     for i, nm in enumerate(channel_names):
         log[f"debug/{nm}_x"] = pos_b[:, i, 0].mean().item()
         log[f"debug/{nm}_y"] = pos_b[:, i, 1].mean().item()
         log[f"debug/{nm}_z"] = pos_b[:, i, 2].mean().item()
-
-    # hip motor: world-frame height (index 4 = right_hip_pitch_link)
     log["debug/hip_z"] = pos_w[:, 4, 2].mean().item()
 
-    # --- ball, root-relative yaw frame ---
     ball: RigidObject = env.scene[ball_cfg.name]
     rel = ball.data.root_pos_w - robot.data.root_pos_w
     ball_b = math_utils.quat_apply_inverse(
@@ -441,18 +388,10 @@ def _peak_contact_vec(env, sensor_cfg):
 
 def ball_xy_force_penalty(
     env: ManagerBasedRLEnv,
-    sensor_cfgs: list[
-        SceneEntityCfg
-    ],  # [left_ankle_ball_contact, right_ankle_ball_contact]
+    sensor_cfgs: list[SceneEntityCfg],
     force_threshold: float = 0.1,
 ) -> torch.Tensor:
-    """Horizontal fraction of the peak contact impulse, gated on contact.
-
-    Frictionless ball -> impulse is along the contact normal. xy_frac -> 0 iff the
-    foot strikes the UNDERSIDE (normal up -> vertical launch). Penalizing this drives
-    the policy under the ball. A hard *vertical* kick is not punished; only a diagonal
-    one. World-frame XY is correct: |xy| is yaw-invariant, and the rail absorbs world-Z.
-    """
+    """Horizontal fraction of the peak contact impulse, gated on contact."""
     total = torch.zeros(env.num_envs, device=env.device)
     for cfg in sensor_cfgs:
         vec, mag = _peak_contact_vec(env, cfg)
@@ -469,7 +408,7 @@ def track_ball_vel_xy_exp(
     std: float = 0.5,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
 ) -> torch.Tensor:
-    """Reward near-zero ball horizontal velocity (anti-drift, Stage 3+). Positive weight."""
+    """Reward near-zero ball horizontal velocity."""
     ball: RigidObject = env.scene[ball_cfg.name]
     err = torch.sum(torch.square(ball.data.root_lin_vel_w[:, :2]), dim=1)
     env.extras.setdefault("log", {})["debug/ball_vel_xy_mag"] = (
@@ -481,16 +420,10 @@ def track_ball_vel_xy_exp(
 def track_ball_pos_xy_exp(
     env: ManagerBasedRLEnv,
     std: float = 0.5,
-    reach: float = 0.0,  # deadzone radius: no penalty within `reach` of the kick point
+    reach: float = 0.0,
     ball_cfg: SceneEntityCfg = SceneEntityCfg("ball"),
 ) -> torch.Tensor:
-    """Reward the ball staying near its spawn anchor (the kick point), Stage 3+. Positive weight.
-
-    Anchored to env.ball_anchor_xy (set in reset_ball_state), NOT the robot root:
-    a root-centered target would pull the ball onto the pelvis -- straight into
-    ball_illegal_contact_penalty. The anchor is a fixed per-env restoring point that
-    keeps the juggle localized over the kick point.
-    """
+    """Reward the ball staying near its spawn anchor."""
     ball: RigidObject = env.scene[ball_cfg.name]
     anchor = getattr(env, "ball_anchor_xy", None)
     if anchor is None:
@@ -502,13 +435,7 @@ def track_ball_pos_xy_exp(
 
 
 def alternate_foot_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """+1 when a scored kick uses a different foot than the previous scored kick.
-
-    MUST be declared AFTER ball_foot_contact in the RewardsCfg -- it reads
-    env.contact_count and env.last_contact_foot, both written by ball_foot_contact_reward
-    earlier in the same reward pass. Reorder them and this silently reads stale state.
-    Uses the contact_count DELTA (robust to the accumulation bug below).
-    """
+    """+1 when a scored kick uses a different foot than the previous scored kick."""
     n, dev = env.num_envs, env.device
     if not hasattr(env, "contact_count") or not hasattr(env, "last_contact_foot"):
         return torch.zeros(n, device=dev)
@@ -519,8 +446,8 @@ def alternate_foot_bonus(env: ManagerBasedRLEnv) -> torch.Tensor:
     scored_now = env.contact_count > env.prev_contact_count
     env.prev_contact_count = env.contact_count.clone()
 
-    lcf = env.last_contact_foot  # (N,2) one-hot
-    single = lcf.sum(dim=1) == 1.0  # ignore ambiguous double-foot frames
+    lcf = env.last_contact_foot
+    single = lcf.sum(dim=1) == 1.0
     cur_foot = torch.where(
         single, lcf.argmax(dim=1), torch.full((n,), -1, dtype=torch.long, device=dev)
     )

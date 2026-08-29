@@ -17,15 +17,12 @@ robot = Articulation(robot_cfg)
 
 sim.reset()
 
-LEG = "left"  # flip to "right" to re-verify against the already-trusted values
+LEG = "left"
 hip_idx = robot.data.body_names.index(f"{LEG}_hip_pitch_link")
 ankle_idx = robot.data.body_names.index(f"{LEG}_ankle_link")
 knee_ids, knee_names = robot.find_joints([f"{LEG}_knee.*"])
 assert len(knee_ids) == 1, f"Expected exactly 1 knee joint match, got {knee_names}"
 knee_id = knee_ids[0]
-
-# Sanity check the sign convention before trusting 0.0 == "straight" (this was
-# assumed, never verified, in the original script).
 limits = robot.data.default_joint_pos_limits[0, knee_id]
 print(
     f"{LEG}_knee joint limits: [{limits[0]:.3f}, {limits[1]:.3f}] rad "
@@ -45,14 +42,14 @@ def settle_and_measure(knee_angle: float, settle_steps: int = 60) -> float:
     joint_pos[0, knee_id] = knee_angle
     joint_vel = torch.zeros_like(joint_pos)
 
-    robot.write_joint_state_to_sim(joint_pos, joint_vel)  # instantaneous state
-    robot.set_joint_position_target(joint_pos)  # PD target -- the missing piece
+    robot.write_joint_state_to_sim(joint_pos, joint_vel)
+    robot.set_joint_position_target(joint_pos)
     robot.write_data_to_sim()
 
     for _ in range(settle_steps):
         sim.step()
         robot.update(sim.get_physics_dt())
-        robot.write_data_to_sim()  # re-assert target every step
+        robot.write_data_to_sim()
 
     pos = robot.data.body_pos_w[0]
     return torch.norm(pos[hip_idx] - pos[ankle_idx]).item()
