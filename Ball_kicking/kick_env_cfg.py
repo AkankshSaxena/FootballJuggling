@@ -69,7 +69,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
         # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 3.0)),   #s1
         # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.65, -0.085, 0.25)),  # s2
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.65, -0.085, 2.0)),  # s3
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, -0.085, 2.0)),  # s3
     )
 
     light = AssetBaseCfg(
@@ -253,7 +253,7 @@ class H1JuggleEventCfg:
         func=kick_events.reset_ball_state,
         mode="reset",
         params={
-            "distance_offset": 0.65,
+            "distance_offset": 0.55,
             "lateral_offset": 0.085,
             "height_offset": 2.0,  # s3+, #0.25 s2, #3 s1
         },
@@ -460,7 +460,7 @@ class H1JuggleActionsCfg:
 
 @configclass
 class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
-    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=2.0)
+    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=3.0)
     observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
     events: H1JuggleEventCfg = H1JuggleEventCfg()
     rewards: H1JuggleRewardsCfg = H1JuggleRewardsCfg()
