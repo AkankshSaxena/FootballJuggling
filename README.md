@@ -5,15 +5,17 @@ Training a Unitree H1 humanoid to perform sustained football juggling using pure
 
 ## 2. Current Stage
 Stage 3.3 complete: sustained single-leg (right foot) free-ball juggling, bounded XY drift, working 25 s demo. Training frozen; packaging phase in progress.
+
 https://github.com/user-attachments/assets/64f6f2e4-2f3d-4168-b444-81cdae748338
 
 ## 3. Videos
+Stage 1 - Learn to swing (no ball contact) 
 
-1. Learn to swing (no ball contact) 
 https://github.com/user-attachments/assets/b21341cd-47f3-4cae-8b68-bb0c16bdde1d
 
 
-2.1 – 2.3. Learn to kick (ball on constrained rail)
+Stage 2 (2.1 – 2.3) - Learn to kick (ball on constrained rail)
+
 https://github.com/user-attachments/assets/8f16c0de-7955-4d83-8cba-59339ee5a430
 
 https://github.com/user-attachments/assets/98f49dea-1b90-4ad4-84bc-b31ff60af1e8
@@ -21,7 +23,8 @@ https://github.com/user-attachments/assets/98f49dea-1b90-4ad4-84bc-b31ff60af1e8
 https://github.com/user-attachments/assets/94ffdb7b-694c-4269-a010-6372c13ee944
 
 
-3.1 – 3.3. Learn to maintain juggling (free ball) 
+Stage 3 (3.1 – 3.3) - Learn to maintain juggling (free ball) 
+
 https://github.com/user-attachments/assets/f1fa5a1f-569d-4d8c-9f4a-eaad2f26b821
 
 https://github.com/user-attachments/assets/636f253b-14db-4416-b7f2-d80ce7dd9780
@@ -34,15 +37,19 @@ https://github.com/user-attachments/assets/e6ea45d9-8f77-415c-b192-7584d6aa6bd7
 ## 4. Failure Cases
 
 1. **Reward hacking** -
+   
 https://github.com/user-attachments/assets/8a442c6b-f6b7-4c00-838a-fa5a21ae84d7
 
-2. **No strike** — 
+2. **No strike** -
+   
 https://github.com/user-attachments/assets/7ba3672e-8df0-436c-a6fc-5a417cc20f4e
 
-3. **Trapping exploit** 
+3. **Trapping exploit** -
+   
 https://github.com/user-attachments/assets/e0ac9624-a191-42e6-8370-7d2b75638b56
 
-4. **Ball Dropping** 
+4. **Ball Dropping** -
+   
 https://github.com/user-attachments/assets/787a5b2f-e46e-40ac-8e55-98b084e74fd2
 
 
