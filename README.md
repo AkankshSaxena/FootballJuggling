@@ -9,20 +9,39 @@ Stage 3.3 complete: sustained single-leg (right foot) free-ball juggling, bounde
 ## 3. Videos
 
 1. Learn to swing (no ball contact) 
-2.1 – 2.3. Learn to kick (ball on constrained rail) 
+https://github.com/user-attachments/assets/b21341cd-47f3-4cae-8b68-bb0c16bdde1d
+
+
+2.1 – 2.3. Learn to kick (ball on constrained rail)
+https://github.com/user-attachments/assets/8f16c0de-7955-4d83-8cba-59339ee5a430
+
+https://github.com/user-attachments/assets/98f49dea-1b90-4ad4-84bc-b31ff60af1e8
+
+https://github.com/user-attachments/assets/94ffdb7b-694c-4269-a010-6372c13ee944
+
+
 3.1 – 3.3. Learn to maintain juggling (free ball) 
+https://github.com/user-attachments/assets/f1fa5a1f-569d-4d8c-9f4a-eaad2f26b821
+
+https://github.com/user-attachments/assets/636f253b-14db-4416-b7f2-d80ce7dd9780
+
+https://github.com/user-attachments/assets/5274aadc-c251-4b5e-b95d-133748452668
+
 
 ## 4. Failure Cases
 
 1. **Reward hacking** -
-   Video: https://github.com/user-attachments/assets/8a442c6b-f6b7-4c00-838a-fa5a21ae84d7
+https://github.com/user-attachments/assets/8a442c6b-f6b7-4c00-838a-fa5a21ae84d7
 
 2. **No strike** — 
-   Video: https://github.com/user-attachments/assets/7ba3672e-8df0-436c-a6fc-5a417cc20f4e
+https://github.com/user-attachments/assets/7ba3672e-8df0-436c-a6fc-5a417cc20f4e
 
 3. **Trapping exploit** 
+https://github.com/user-attachments/assets/e0ac9624-a191-42e6-8370-7d2b75638b56
 
-4. **Carry/dribble exploit** 
+4. **Ball Dropping** 
+https://github.com/user-attachments/assets/787a5b2f-e46e-40ac-8e55-98b084e74fd2
+
 
 ## 5. System Specs
 
