@@ -5,6 +5,7 @@ Training a Unitree H1 humanoid to perform sustained football juggling using pure
 
 ## 2. Current Stage
 Stage 3.3 complete: sustained single-leg (right foot) free-ball juggling, bounded XY drift, working 25 s demo. Training frozen; packaging phase in progress.
+https://github.com/user-attachments/assets/64f6f2e4-2f3d-4168-b444-81cdae748338
 
 ## 3. Videos
 
@@ -25,7 +26,9 @@ https://github.com/user-attachments/assets/f1fa5a1f-569d-4d8c-9f4a-eaad2f26b821
 
 https://github.com/user-attachments/assets/636f253b-14db-4416-b7f2-d80ce7dd9780
 
-https://github.com/user-attachments/assets/5274aadc-c251-4b5e-b95d-133748452668
+https://github.com/user-attachments/assets/e6ea45d9-8f77-415c-b192-7584d6aa6bd7
+
+
 
 
 ## 4. Failure Cases
