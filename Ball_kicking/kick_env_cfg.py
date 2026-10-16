@@ -12,7 +12,7 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab_assets import H1_CFG
+from isaaclab_assets import G1_CFG
 from isaaclab.sensors import ContactSensorCfg
 
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
@@ -28,7 +28,7 @@ SWING_PERIOD = 0.8
 
 
 @configclass
-class H1JuggleSceneCfg(InteractiveSceneCfg):
+class G1JuggleSceneCfg(InteractiveSceneCfg):
     """Scene: robot, ball, ground, contact sensors."""
 
     terrain = TerrainImporterCfg(
@@ -43,7 +43,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    robot: ArticulationCfg = H1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = G1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     robot.spawn.activate_contact_sensors = True
 
     ball: RigidObjectCfg = RigidObjectCfg(
@@ -67,9 +67,9 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
                 restitution=0.8,
             ),
         ),
-        # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 3.0)),   #s1
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 3.0)),   #s1
         # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.65, -0.085, 0.25)),  # s2
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, -0.085, 2.0)),  # s3
+        # init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, -0.085, 2.0)),  # s3
     )
 
     light = AssetBaseCfg(
@@ -170,7 +170,7 @@ class H1JuggleSceneCfg(InteractiveSceneCfg):
 
 
 @configclass
-class H1JuggleObservationsCfg:
+class G1JuggleObservationsCfg:
     """Policy observations."""
 
     @configclass
@@ -226,7 +226,7 @@ class H1JuggleObservationsCfg:
 
 
 @configclass
-class H1JuggleEventCfg:
+class G1JuggleEventCfg:
     reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -253,25 +253,25 @@ class H1JuggleEventCfg:
         func=kick_events.reset_ball_state,
         mode="reset",
         params={
-            "distance_offset": 0.55,
-            "lateral_offset": 0.085,
-            "height_offset": 2.0,  # s3+, #0.25 s2, #3 s1
+            "distance_offset": 0.0,  #0.55,
+            "lateral_offset": 0.0,   #0.085,
+            "height_offset": 3.0,  # s3+, #0.25 s2, #3 s1
         },
     )
 
-    # constrain_ball = EventTerm(
-    #     func=kick_events.constrain_ball_to_z_axis,
-    #     mode="interval",
-    #     interval_range_s=(0.0, 0.0),
-    #     params={
-    #         "ball_cfg": SceneEntityCfg("ball"),
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "min_height": 0.0,  # 0.0 s3,  # 0.25 s2, # 0.0 s3
-    #         "follow_robot": False,
-    #         "pin_x": False,
-    #         "pin_y": False,
-    #     },
-    # )
+    constrain_ball = EventTerm(
+        func=kick_events.constrain_ball_to_z_axis,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        params={
+            "ball_cfg": SceneEntityCfg("ball"),
+            "robot_cfg": SceneEntityCfg("robot"),
+            "min_height": 0.0,  # 0.0 s3,  # 0.25 s2, # 0.0 s3
+            "follow_robot": True,
+            "pin_x": True,
+            "pin_y": True,
+        },
+    )
 
     # ball_gravity = EventTerm(
     #     func=kick_events.ball_gravity_scale,
@@ -282,7 +282,7 @@ class H1JuggleEventCfg:
 
 
 @configclass
-class H1JuggleRewardsCfg:
+class G1JuggleRewardsCfg:
     # Regularization
     termination_penalty = RewTerm(func=kick_rewards.termination_penalty, weight=-100.0)
     orientation_penalty = RewTerm(func=mdp.flat_orientation_l2, weight=-1.0)
@@ -335,7 +335,7 @@ class H1JuggleRewardsCfg:
     # Stability
     ball_robot_dist = RewTerm(
         func=kick_rewards.ball_robot_dist_reward,
-        weight=0.15,  # s3.2+, #0.1 s3.1,  #0.1 s2.3,  #0.0,
+        weight= 0.0,   #0.15,  # s3.2+, #0.1 s3.1,  #0.1 s2.3,  #0.0,
         params={"kick_range": 0.0, "std": 1.0},
     )
     one_foot_ground_contact = RewTerm(
@@ -348,7 +348,7 @@ class H1JuggleRewardsCfg:
     )
     foot_swing_knee_extend = RewTerm(
         func=kick_rewards.foot_swing_knee_extend,
-        weight=0.0,  # s2.2+, #1.0 s2.1, #4 s1
+        weight= 4.0,   #0.0,  # s2.2+, #1.0 s2.1, #4 s1
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -367,7 +367,7 @@ class H1JuggleRewardsCfg:
     # Juggling
     ball_foot_contact = RewTerm(
         func=kick_rewards.ball_foot_contact_reward,
-        weight=120.0,  # s2.3+, #80.0 s2.2, #40 s2.1, #0.0 s1,
+        weight= 0.0,   #120.0,  # s2.3+, #80.0 s2.2, #40 s2.1, #0.0 s1,
         params={
             "left_sensor_cfg": SceneEntityCfg("left_ankle_ball_contact"),
             "right_sensor_cfg": SceneEntityCfg("right_ankle_ball_contact"),
@@ -383,7 +383,7 @@ class H1JuggleRewardsCfg:
     )
     ball_illegal_contact_penalty = RewTerm(
         func=kick_rewards.ball_illegal_contact_penalty,
-        weight=-15.0,  # -15.0 s2.2,  # -10 s2.1, #0.0 s1,
+        weight= 0.0,   #-15.0,  # -15.0 s2.2,  # -10 s2.1, #0.0 s1,
         params={
             "illegal_sensor_cfgs": [
                 SceneEntityCfg("pelvis_ball_contact"),
@@ -404,7 +404,7 @@ class H1JuggleRewardsCfg:
     )
     apex_height = RewTerm(
         func=kick_rewards.apex_height_reward,
-        weight=80.0,  # s2.3+  # 50.0 s2.2,  #40 s2.1, #0.0 s1,
+        weight= 0.0,    #80.0,  # s2.3+  # 50.0 s2.2,  #40 s2.1, #0.0 s1,
         params={"apex_min": 1.2, "apex_max": 2.8},
     )
 
@@ -414,7 +414,7 @@ class H1JuggleRewardsCfg:
     # Later stage rewards
     ball_xy_force_penalty = RewTerm(
         func=kick_rewards.ball_xy_force_penalty,
-        weight=-2.0,  # s3.1+,  # 0.0,
+        weight= 0.0,  #-2.0, s3.1+,  # 0.0,
         params={
             "sensor_cfgs": [
                 SceneEntityCfg("left_ankle_ball_contact"),
@@ -425,12 +425,12 @@ class H1JuggleRewardsCfg:
     )
     track_ball_vel_xy = RewTerm(
         func=kick_rewards.track_ball_vel_xy_exp,
-        weight=1.0,  # s3.1+,  # 0.0,
+        weight= 0.0,  #1.0, s3.1+,  # 0.0,
         params={"std": 0.5},
     )
     track_ball_pos_xy = RewTerm(
         func=kick_rewards.track_ball_pos_xy_exp,
-        weight=1.0,  # s3.1+,  # 0.0,
+        weight= 0.0,  #1.0, s3.1+,  # 0.0,
         params={"std": 0.5, "reach": 0.5},
     )
     alternate_foot_bonus = RewTerm(
@@ -440,32 +440,32 @@ class H1JuggleRewardsCfg:
 
 
 @configclass
-class H1JuggleTerminationsCfg:
+class G1JuggleTerminationsCfg:
     time_out = DoneTerm(func=kick_terminations.time_out, time_out=True)
     robot_falls = DoneTerm(func=kick_terminations.torso_height_below)
     robot_out_of_bounds = DoneTerm(func=kick_terminations.robot_out_of_bounds)
-    ball_on_ground = DoneTerm(
-        func=kick_terminations.ball_on_ground_timeout,
-        time_out=False,
-        params={"delay_s": 0.2, "ground_height": 0.15},
-    )
+    # ball_on_ground = DoneTerm(
+    #     func=kick_terminations.ball_on_ground_timeout,
+    #     time_out=False,
+    #     params={"delay_s": 0.2, "ground_height": 0.15},
+    # )
 
 
 @configclass
-class H1JuggleActionsCfg:
+class G1JuggleActionsCfg:
     joint_pos = mdp.JointPositionActionCfg(
         asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True
     )
 
 
 @configclass
-class H1JuggleEnvCfg(ManagerBasedRLEnvCfg):
-    scene: H1JuggleSceneCfg = H1JuggleSceneCfg(num_envs=4096, env_spacing=3.0)
-    observations: H1JuggleObservationsCfg = H1JuggleObservationsCfg()
-    events: H1JuggleEventCfg = H1JuggleEventCfg()
-    rewards: H1JuggleRewardsCfg = H1JuggleRewardsCfg()
-    terminations: H1JuggleTerminationsCfg = H1JuggleTerminationsCfg()
-    actions: H1JuggleActionsCfg = H1JuggleActionsCfg()
+class G1JuggleEnvCfg(ManagerBasedRLEnvCfg):
+    scene: G1JuggleSceneCfg = G1JuggleSceneCfg(num_envs=4096, env_spacing=3.0)
+    observations: G1JuggleObservationsCfg = G1JuggleObservationsCfg()
+    events: G1JuggleEventCfg = G1JuggleEventCfg()
+    rewards: G1JuggleRewardsCfg = G1JuggleRewardsCfg()
+    terminations: G1JuggleTerminationsCfg = G1JuggleTerminationsCfg()
+    actions: G1JuggleActionsCfg = G1JuggleActionsCfg()
 
     def __post_init__(self):
         self.episode_length_s = 25.0

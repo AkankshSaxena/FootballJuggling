@@ -1,7 +1,7 @@
 Every stage is a **fresh WandB run and a fresh checkpoint lineage**. 
 Weights transfer across stages with - 
     ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
-    --task Isaac-Velocity-Kick-H1-v0 \
+    --task Isaac-Velocity-Kick-G1-v0 \
     --num_envs 4096 \
     --headless \
     --logger wandb \

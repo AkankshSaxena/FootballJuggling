@@ -6,13 +6,13 @@ simulation_app = app_launcher.app
 import math
 import torch
 from isaaclab.assets import Articulation
-from isaaclab_assets import H1_CFG
+from isaaclab_assets import G1_CFG
 import isaaclab.sim as sim_utils
 
 sim_cfg = sim_utils.SimulationCfg(dt=0.005)
 sim = sim_utils.SimulationContext(sim_cfg)
 
-robot_cfg = H1_CFG.replace(prim_path="/World/Robot")
+robot_cfg = G1_CFG.replace(prim_path="/World/Robot")
 robot = Articulation(robot_cfg)
 
 sim.reset()
