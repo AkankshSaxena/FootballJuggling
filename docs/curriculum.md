@@ -482,7 +482,7 @@ ball_on_ground       - ball center < 0.15 m for 0.2 s
   changes — exactly the failure mode the fresh-lineage rule exists to prevent.
   The dead module (`kick_curriculums.py`) has been deleted; it's in git history.
 
-## Next rungs (designed, not yet trained)
+## Future work 
 
 - **3.4 — spatial generalization.** Randomize `distance_offset` ∈ [0.55, 0.75]
   and **signed** `lateral_offset` ∈ [−0.085, +0.085] in `reset_ball_state`, so
@@ -499,15 +499,3 @@ ball_on_ground       - ball center < 0.15 m for 0.2 s
   ground friction → actuator stiffness/damping → observation noise
   (`enable_corruption=True`, excluding `swing_phase`) + action-delay queue →
   base pushes.
-
----
-
-*A note on precision:* the per-stage reward weights above are traced exactly
-from `kick_env_cfg.py`'s inline history comments. The transition-gate
-**numeric thresholds** for the 3.1/3.2/3.3 split are a reasonable
-reconstruction from a single merged "Stage 3" gate in the project's earlier
-planning notes (which predate the 3.1/3.2/3.3 sub-staging) — treat the gate
-*criteria* as accurate and the exact split points as approximate. Separately,
-the `apex_height_reward` band in the current code (`apex_min=1.2,
-apex_max=2.8`) does not match the project's locked target band (0.8–1.6 m);
-this is a known open item, not resolved by this document.

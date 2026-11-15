@@ -1,20 +1,33 @@
 # FootballJuggling — H1 Humanoid Ball Juggling (RL)
 
 ## 1. Overview
-Training a Unitree H1 humanoid to perform sustained football juggling using pure reinforcement learning, no motion capture, no reference trajectories, no kinematic retargeting. Policy trained with PPO (RSL-RL) in Isaac Lab on PhysX GPU, 4096 parallel environments. Behavior is shaped entirely through a staged reward curriculum: the ball starts constrained to a vertical rail at foot height, and physical constraints (Z → Y → X) are released one at a time as the policy masters each stage, ending in a fully free 0.45 kg ball. Reward terms are gated on the ball object and force thresholds (not just contact) to distinguish a genuine strike from a carry, since a frictionless ball is trivially exploitable by pure contact rewards.
+Training a Unitree H1 humanoid to perform sustained football juggling using pure reinforcement learning, with no motion capture or kinematic retargeting. Policy trained with PPO (RSL-RL) in Isaac Lab on PhysX GPU, 4096 parallel environments. Behavior is shaped entirely through a 4-stage reward curriculum (balance & swing → ball contact on a rail → free-ball juggling → domain randomization, planned), with stages 1-3 trained. The ball starts constrained to a vertical rail at foot height, and physical constraints (Z → Y → X) are released one at a time as the policy masters each stage, ending in a fully free 0.45 kg ball. Reward terms are gated on the ball object and force thresholds (not just contact) to distinguish a genuine strike from a carry, since a frictionless ball is trivially exploitable by pure contact rewards.
 
 ## 2. Current Stage
-Stage 3.3 complete: sustained single-leg (right foot) free-ball juggling, bounded XY drift, working 25 s demo. Training frozen; packaging phase in progress.
+Stages 1-3 complete (final: Stage 3.3): sustained single-leg (right foot) free-ball juggling, bounded XY drift, 25 s demo. Stage 4 (domain randomization) is planned.
+
+**Training logs:** [W&B project](https://forge.coreweave.com/wandb/akanksh-iitd-self/isaaclab) (final runs: `s1`-`s3.3`; the rest are earlier iterations).
+
+**Best checkpoint:** [checkpoints/h1_stage3.3.pt](checkpoints/h1_stage3.3.pt)
 
 https://github.com/user-attachments/assets/64f6f2e4-2f3d-4168-b444-81cdae748338
 
+**Ablation (frozen checkpoint, altered observations):** confirms the policy reacts to the ball and isn't replaying a timed motion.
+
+| Observation change | Scored kicks / episode |
+|---|---|
+| None (baseline) | 30 |
+| Swing-phase clock shifted by half a period | ~ 30 (no change) |
+| Swing-phase output offset +0.4 rad (out-of-distribution) | ~ 30 (no change) |
+| Ball position & velocity zeroed | ~ 0 (collapsed) |
+
 ## 3. Videos
-Stage 1 - Learn to swing (no ball contact) 
+**Stage 1** - Learn to swing (no ball contact) 
 
 https://github.com/user-attachments/assets/b21341cd-47f3-4cae-8b68-bb0c16bdde1d
 
 
-Stage 2 (2.1 – 2.3) - Learn to kick (ball on constrained rail)
+**Stage 2 (2.1 – 2.3)** - Learn to kick (ball on constrained rail)
 
 https://github.com/user-attachments/assets/8f16c0de-7955-4d83-8cba-59339ee5a430
 
@@ -23,7 +36,7 @@ https://github.com/user-attachments/assets/98f49dea-1b90-4ad4-84bc-b31ff60af1e8
 https://github.com/user-attachments/assets/94ffdb7b-694c-4269-a010-6372c13ee944
 
 
-Stage 3 (3.1 – 3.3) - Learn to maintain juggling (free ball) 
+**Stage 3 (3.1 – 3.3)** - Learn to maintain juggling (free ball) 
 
 https://github.com/user-attachments/assets/f1fa5a1f-569d-4d8c-9f4a-eaad2f26b821
 
@@ -36,22 +49,30 @@ https://github.com/user-attachments/assets/e6ea45d9-8f77-415c-b192-7584d6aa6bd7
 
 ## 4. Failure Cases
 
-1. **Reward hacking** -
-   
-https://github.com/user-attachments/assets/8a442c6b-f6b7-4c00-838a-fa5a21ae84d7
+1. **Ball dropping (all constraints released at once)**
+   Releasing every ball constraint at once left the policy unable to keep the ball up. Replaced with a staged release.
 
-2. **No strike** -
-   
-https://github.com/user-attachments/assets/7ba3672e-8df0-436c-a6fc-5a417cc20f4e
+https://github.com/user-attachments/assets/1c68e2da-6aea-4830-bdeb-fbe9ffe54456
 
-3. **Trapping exploit** -
-   
-https://github.com/user-attachments/assets/e0ac9624-a191-42e6-8370-7d2b75638b56
+2. **Scooping instead of kicking**
+   The robot scooped the ball and skipped the apex reward, since the contact reward depended on touch, not force. Added peak-force and launch-velocity thresholds to the kick gate.
 
-4. **Ball Dropping** -
-   
-https://github.com/user-attachments/assets/787a5b2f-e46e-40ac-8e55-98b084e74fd2
+https://github.com/user-attachments/assets/d5c7c824-6e95-453c-8a3c-bed6d427b537
 
+3. **Limit-cycle farming (repeated tapping)**
+   The policy tapped the ball over and over with quick swings to hold it near apex height, farming the apex and contact rewards without real strikes. Tightened the kick gate: rising-edge force trigger, a higher peak-force threshold and a minimum interval between scored kicks.
+
+https://github.com/user-attachments/assets/9038352e-d40c-4bd2-b2a2-d5f8dfc3b18b
+
+4. **Ball passing through the shin (missing collision geometry)**
+   The ball penetrated the robot's shin with no contact registered, because `H1_MINIMAL_CFG` has no collision geometry. Switched to the full `H1_CFG`.
+
+https://github.com/user-attachments/assets/499f1f50-f589-4313-af91-40f342ec54b8
+
+5. **Rolling the ball along the legs (axis-order loophole)**
+   The robot minimized the ball-drop penalty by rolling the ball along its legs. Releasing X before the still-constrained Y axis made this a sub-optimal path. Reordered the release to Z → Y → X.
+
+https://github.com/user-attachments/assets/78b1274c-9902-4fbf-a688-ab2c5676774b
 
 ## 5. System Specs
 
