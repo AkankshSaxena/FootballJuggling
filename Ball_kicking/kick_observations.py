@@ -46,7 +46,7 @@ def feet_position_in_robot_frame(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
-        body_names=["left_ankle_link", "right_ankle_link"],
+        body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
         preserve_order=True,
     ),
 ) -> torch.Tensor:

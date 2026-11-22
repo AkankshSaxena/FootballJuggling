@@ -104,23 +104,28 @@ def foot_swing_knee_extend(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
-        body_names=["right_hip_pitch_link", "right_ankle_link"],
+        body_names=[
+            "left_hip_pitch_link", "left_ankle_roll_link",
+            "right_hip_pitch_link", "right_ankle_roll_link",
+        ],
         preserve_order=True,
     ),
     h: float = 0.7874,
     h_prime: float = 0.80,
     theta_max_deg: float = 60.0,
     swing_time: float = 0.8,
-    period: float = 0.8,
+    period: float = 1.2,
     std: float = 0.15,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg(
+        "contact_forces",
+        body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+        preserve_order=True,
+    ),
 ) -> torch.Tensor:
-    """Two-phase kick-swing target."""
+    """Commanded-leg kick swing followed by a recovery pause."""
     robot: Articulation = env.scene[asset_cfg.name]
     t = env.episode_length_buf.float() * env.step_dt
-    theta_max = math.radians(theta_max_deg)
     t_cycle = torch.remainder(t, period)
-    p = torch.clamp(t_cycle / swing_time, max=1.0)
-    tri = 1.0 - torch.abs(2.0 * p - 1.0)
     theta = kick_swing.swing_theta(env, theta_max_deg, swing_time, period)
 
     theta_c = math.acos(h / h_prime)
@@ -132,8 +137,10 @@ def foot_swing_knee_extend(
     )
 
     body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
-    hip_pos_w = body_pos_w[:, 0, :]
-    ankle_pos_w = body_pos_w[:, 1, :]
+    idx = torch.arange(env.num_envs, device=env.device)
+    hip_ids = 2 * env.leg_cmd
+    hip_pos_w = body_pos_w[idx, hip_ids, :]
+    ankle_pos_w = body_pos_w[idx, hip_ids + 1, :]
 
     rel_w = ankle_pos_w - hip_pos_w
     yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
@@ -163,6 +170,20 @@ def foot_swing_knee_extend(
     env.max_swing_theta = torch.maximum(env.max_swing_theta, theta)
 
     log = env.extras.setdefault("log", {})
+    cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    grounded = (
+        cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
+        .norm(dim=-1).max(dim=1)[0] > 1.0
+    )
+    airborne = ~grounded
+    active_swing = t_cycle < swing_time
+    commanded_airborne = airborne[idx, env.leg_cmd]
+    log["debug/commanded_left_fraction"] = (env.leg_cmd == 0).float().mean().item()
+    log["debug/left_foot_airborne_fraction"] = airborne[:, 0].float().mean().item()
+    log["debug/right_foot_airborne_fraction"] = airborne[:, 1].float().mean().item()
+    log["debug/commanded_swing_airborne_fraction"] = (
+        (commanded_airborne & active_swing).float().sum()
+        / active_swing.float().sum().clamp(min=1.0)).item()
     log["debug/swing_theta_deg"] = math.degrees(theta.mean().item())
     log["debug/swing_x_target"] = x_target.mean().item()
     log["debug/swing_x_actual"] = rel_b[:, 0].mean().item()
@@ -197,7 +218,7 @@ def ball_foot_contact_reward(
     min_kick_interval_s: float = 0.5,
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
-        body_names=["left_ankle_link", "right_ankle_link"],
+        body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
         preserve_order=True,
     ),
 ) -> torch.Tensor:
@@ -317,8 +338,8 @@ def log_kinematics(
     robot_cfg: SceneEntityCfg = SceneEntityCfg(
         "robot",
         body_names=[
-            "left_ankle_link",
-            "right_ankle_link",
+            "left_ankle_roll_link",
+            "right_ankle_roll_link",
             "left_knee_link",
             "right_knee_link",
             "right_hip_pitch_link",
@@ -331,8 +352,8 @@ def log_kinematics(
     ids = robot_cfg.body_ids
     if not getattr(env, "_log_kinematics_order_checked", False):
         expected = [
-            "left_ankle_link",
-            "right_ankle_link",
+            "left_ankle_roll_link",
+            "right_ankle_roll_link",
             "left_knee_link",
             "right_knee_link",
             "right_hip_pitch_link",

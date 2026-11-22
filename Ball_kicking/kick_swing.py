@@ -12,7 +12,7 @@ def swing_theta(
     env: ManagerBasedRLEnv,
     theta_max_deg: float = 60.0,
     swing_time: float = 0.8,
-    period: float = 0.8,
+    period: float = 1.2,
 ) -> torch.Tensor:
     """Triangular swing-phase angle theta(t): 0 -> theta_max -> 0 over
     swing_time, then held at 0 until the period boundary (rest phase if

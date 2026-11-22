@@ -6,21 +6,21 @@ simulation_app = app_launcher.app
 import math
 import torch
 from isaaclab.assets import Articulation
-from isaaclab_assets import G1_CFG
+from isaaclab_assets import G1_29DOF_CFG
 import isaaclab.sim as sim_utils
 
 sim_cfg = sim_utils.SimulationCfg(dt=0.005)
 sim = sim_utils.SimulationContext(sim_cfg)
 
-robot_cfg = G1_CFG.replace(prim_path="/World/Robot")
+robot_cfg = G1_29DOF_CFG.replace(prim_path="/World/Robot")
 robot = Articulation(robot_cfg)
 
 sim.reset()
 
 LEG = "right"
 hip_idx = robot.data.body_names.index(f"{LEG}_hip_pitch_link")
-ankle_idx = robot.data.body_names.index(f"{LEG}_ankle_link")
-knee_ids, knee_names = robot.find_joints([f"{LEG}_knee.*"])
+ankle_idx = robot.data.body_names.index(f"{LEG}_ankle_roll_link")
+knee_ids, knee_names = robot.find_joints([f"{LEG}_knee_joint"])
 assert len(knee_ids) == 1, f"Expected exactly 1 knee joint match, got {knee_names}"
 knee_id = knee_ids[0]
 limits = robot.data.default_joint_pos_limits[0, knee_id]

@@ -12,7 +12,7 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab_assets import G1_CFG
+from isaaclab_assets import G1_29DOF_CFG
 from isaaclab.sensors import ContactSensorCfg
 
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
@@ -24,7 +24,9 @@ from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
 
 SWING_THETA_MAX_DEG = 60.0
 SWING_TIME = 0.8
-SWING_PERIOD = 0.8
+SWING_PERIOD = 1.2
+STAGE_1_RESAMPLE_LEG = False  # False: 1.1; True: 1.2
+STAGE_1_LATERAL_OFFSET = 0.3
 
 
 @configclass
@@ -43,7 +45,7 @@ class G1JuggleSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    robot: ArticulationCfg = G1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = G1_29DOF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     robot.spawn.activate_contact_sensors = True
 
     ball: RigidObjectCfg = RigidObjectCfg(
@@ -78,7 +80,7 @@ class G1JuggleSceneCfg(InteractiveSceneCfg):
     )
 
     contact_forces = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_link|.*_elbow_link)",
+        prim_path="{ENV_REGEX_NS}/Robot/(pelvis|torso_link|.*_knee_link|.*_ankle_roll_link|.*_elbow_link)",
         history_length=6,
         track_air_time=True,
     )
@@ -132,13 +134,13 @@ class G1JuggleSceneCfg(InteractiveSceneCfg):
         filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
     )
     left_ankle_ball_contact = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/left_ankle_link",
+        prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
         history_length=6,
         track_air_time=False,
         filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
     )
     right_ankle_ball_contact = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/right_ankle_link",
+        prim_path="{ENV_REGEX_NS}/Robot/right_ankle_roll_link",
         history_length=6,
         track_air_time=False,
         filter_prim_paths_expr=["{ENV_REGEX_NS}/Ball.*"],
@@ -192,7 +194,7 @@ class G1JuggleObservationsCfg:
             params={
                 "robot_cfg": SceneEntityCfg(
                     "robot",
-                    body_names=["left_ankle_link", "right_ankle_link"],
+                    body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
                     preserve_order=True,
                 )
             },
@@ -249,6 +251,12 @@ class G1JuggleEventCfg:
         params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
 
+    reset_leg_cmd = EventTerm(
+        func=kick_events.reset_leg_cmd,
+        mode="reset",
+        params={"lateral_offset": STAGE_1_LATERAL_OFFSET},
+    )
+
     reset_ball = EventTerm(
         func=kick_events.reset_ball_state,
         mode="reset",
@@ -259,6 +267,13 @@ class G1JuggleEventCfg:
         },
     )
 
+    resample_leg_cmd = EventTerm(
+        func=kick_events.resample_leg_cmd,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        params={"period": SWING_PERIOD, "lateral_offset": STAGE_1_LATERAL_OFFSET},
+    ) if STAGE_1_RESAMPLE_LEG else None
+
     constrain_ball = EventTerm(
         func=kick_events.constrain_ball_to_z_axis,
         mode="interval",
@@ -266,7 +281,7 @@ class G1JuggleEventCfg:
         params={
             "ball_cfg": SceneEntityCfg("ball"),
             "robot_cfg": SceneEntityCfg("robot"),
-            "min_height": 0.0,  # 0.0 s3,  # 0.25 s2, # 0.0 s3
+            "min_height": 3.0,  # 0.0 s3,  # 0.25 s2, # 3.0 s1
             "follow_robot": True,
             "pin_x": True,
             "pin_y": True,
@@ -292,14 +307,14 @@ class G1JuggleRewardsCfg:
     dof_pos_limits = RewTerm(
         func=mdp.joint_pos_limits,
         weight=-1.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*_ankle")},
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*_ankle_.*_joint")},
     )
     joint_deviation_hip = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-0.2,
         params={
             "asset_cfg": SceneEntityCfg(
-                "robot", joint_names=[".*_hip_yaw", ".*_hip_roll"]
+                "robot", joint_names=[".*_hip_yaw_joint", ".*_hip_roll_joint"]
             )
         },
     )
@@ -308,21 +323,21 @@ class G1JuggleRewardsCfg:
         weight=-0.1,
         params={
             "asset_cfg": SceneEntityCfg(
-                "robot", joint_names=[".*_shoulder_.*", ".*_elbow"]
+                "robot", joint_names=[".*_shoulder_.*", ".*_elbow_joint"]
             )
         },
     )
     joint_deviation_torso = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-0.1,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names="torso")},
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names="waist_.*_joint")},
     )
     feet_slide = RewTerm(
         func=kick_rewards.feet_slide,
         weight=-0.35,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_link"),
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_link"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_roll_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_roll_link"),
         },
     )
     track_ang_vel_z = RewTerm(
@@ -342,7 +357,7 @@ class G1JuggleRewardsCfg:
         func=kick_rewards.one_foot_ground_contact,
         weight=0.5,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_link"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "force_threshold": 1.0,
         },
     )
@@ -352,7 +367,15 @@ class G1JuggleRewardsCfg:
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
-                body_names=["right_hip_pitch_link", "right_ankle_link"],
+                body_names=[
+                    "left_hip_pitch_link", "left_ankle_roll_link",
+                    "right_hip_pitch_link", "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
                 preserve_order=True,
             ),
             "h": 0.7384,
@@ -376,7 +399,7 @@ class G1JuggleRewardsCfg:
             "min_kick_interval_s": 0.8,  # s2.3+, # 0.8 s2.2_new, # 0.5 s2.1,
             "robot_cfg": SceneEntityCfg(
                 "robot",
-                body_names=["left_ankle_link", "right_ankle_link"],
+                body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
                 preserve_order=True,
             ),
         },
