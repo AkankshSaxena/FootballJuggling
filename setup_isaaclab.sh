@@ -66,7 +66,7 @@ fi
 
 step "Miniconda and Python $PYTHON_VERSION"
 if [[ ! -x "$HOME/miniconda3/bin/conda" ]]; then
-  installer=$(mktemp)
+  installer=$(mktemp --suffix=.sh)
   wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O "$installer"
   bash "$installer" -b -p "$HOME/miniconda3"
   rm "$installer"
@@ -116,6 +116,10 @@ if [[ ! -e "$UNITREE_RL_LAB_DIR/.git" ]]; then
 fi
 printf 'Isaac Lab commit: %s\n' "$(git -C "$ISAACLAB_DIR" rev-parse --short HEAD)"
 printf 'Unitree RL Lab commit: %s\n' "$(git -C "$UNITREE_RL_LAB_DIR" rev-parse --short HEAD)"
+
+# Isaac Lab v2.3.2 ships the published-checkpoint helper in isaaclab_rl.
+sed -i 's/^from isaaclab\.utils\.pretrained_checkpoint import /from isaaclab_rl.utils.pretrained_checkpoint import /' \
+  "$UNITREE_RL_LAB_DIR/scripts/rsl_rl/play.py"
 
 cd "$ISAACLAB_DIR"
 if [[ -L _isaac_sim || ! -e _isaac_sim ]]; then

@@ -22,10 +22,10 @@ from unitree_rl_lab.tasks.locomotion.mdp import (
     kick_terminations,
 )
 
-SWING_THETA_MAX_DEG = 60.0
+SWING_THETA_MAX_DEG = 45.0
 SWING_TIME = 0.8
 SWING_PERIOD = 1.2
-STAGE_1_RESAMPLE_LEG = False  # False: 1.1; True: 1.2
+STAGE_1_RESAMPLE_LEG = True  # False: 1.1; True: 1.2
 STAGE_1_LATERAL_OFFSET = 0.3
 
 
@@ -323,7 +323,7 @@ class G1JuggleRewardsCfg:
         weight=-0.1,
         params={
             "asset_cfg": SceneEntityCfg(
-                "robot", joint_names=[".*_shoulder_.*", ".*_elbow_joint"]
+                "robot", joint_names=[".*_shoulder_.*", ".*_elbow_joint", ".*_wrist_.*_joint"]
             )
         },
     )
@@ -378,8 +378,8 @@ class G1JuggleRewardsCfg:
                 body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
                 preserve_order=True,
             ),
-            "h": 0.7384,
-            "h_prime": 0.80,
+            "h": 0.6493,
+            "h_prime": 0.6561,
             "theta_max_deg": SWING_THETA_MAX_DEG,
             "swing_time": SWING_TIME,
             "period": SWING_PERIOD,

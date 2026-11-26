@@ -121,8 +121,9 @@ def foot_swing_knee_extend(
         body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
         preserve_order=True,
     ),
+    ankle_height_at_rest: float = 0.035,
 ) -> torch.Tensor:
-    """Commanded-leg kick swing followed by a recovery pause."""
+    """Track the swing in hip-relative X and ground-relative Z."""
     robot: Articulation = env.scene[asset_cfg.name]
     t = env.episode_length_buf.float() * env.step_dt
     t_cycle = torch.remainder(t, period)
@@ -132,8 +133,12 @@ def foot_swing_knee_extend(
     phase1 = theta <= theta_c
 
     x_target = torch.where(phase1, h * torch.tan(theta), h_prime * torch.sin(theta))
+    # The G1 ankle-roll origin is about 3.5 cm above the floor with a flat foot.
+    # Add the arc's lift to that fixed height so lowering the hip cannot fake lift.
     z_target = torch.where(
-        phase1, torch.full_like(theta, -h), -h_prime * torch.cos(theta)
+        phase1,
+        torch.full_like(theta, ankle_height_at_rest),
+        ankle_height_at_rest + h - h_prime * torch.cos(theta),
     )
 
     body_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
@@ -145,11 +150,11 @@ def foot_swing_knee_extend(
     rel_w = ankle_pos_w - hip_pos_w
     yaw_quat = math_utils.yaw_quat(robot.data.root_quat_w)
     rel_b = math_utils.quat_apply_inverse(yaw_quat, rel_w)
+    ankle_height = ankle_pos_w[:, 2] - env.scene.env_origins[:, 2]
 
     err = (
         torch.square(rel_b[:, 0] - x_target)
-        + torch.square(rel_b[:, 1])  # y = 0 constraint
-        + torch.square(rel_b[:, 2] - z_target)
+        + torch.square(ankle_height - z_target)
     )
 
     if not hasattr(env, "max_swing_x_actual"):
@@ -166,7 +171,7 @@ def foot_swing_knee_extend(
         env.max_swing_theta[reset_env_ids] = -1e9
     env.max_swing_x_actual = torch.maximum(env.max_swing_x_actual, rel_b[:, 0])
     env.max_swing_y_actual = torch.maximum(env.max_swing_y_actual, rel_b[:, 1])
-    env.max_swing_z_actual = torch.maximum(env.max_swing_z_actual, rel_b[:, 2])
+    env.max_swing_z_actual = torch.maximum(env.max_swing_z_actual, ankle_height)
     env.max_swing_theta = torch.maximum(env.max_swing_theta, theta)
 
     log = env.extras.setdefault("log", {})
@@ -188,7 +193,7 @@ def foot_swing_knee_extend(
     log["debug/swing_x_target"] = x_target.mean().item()
     log["debug/swing_x_actual"] = rel_b[:, 0].mean().item()
     log["debug/swing_z_target"] = z_target.mean().item()
-    log["debug/swing_z_actual"] = rel_b[:, 2].mean().item()
+    log["debug/swing_z_actual"] = ankle_height.mean().item()
     log["debug/swing_y_actual"] = rel_b[:, 1].mean().item()
     log["debug/swing_x_actual_mean_max"] = env.max_swing_x_actual.mean().item()
     log["debug/swing_y_actual_mean_max"] = env.max_swing_y_actual.mean().item()
