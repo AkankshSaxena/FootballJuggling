@@ -4,13 +4,13 @@ app_launcher = AppLauncher(headless=True)
 simulation_app = app_launcher.app
 
 from isaaclab.assets import Articulation
-from isaaclab_assets import G1_29DOF_CFG
 import isaaclab.sim as sim_utils
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG
 
 sim_cfg = sim_utils.SimulationCfg(dt=0.005)
 sim = sim_utils.SimulationContext(sim_cfg)
 
-robot_cfg = G1_29DOF_CFG.replace(prim_path="/World/Robot")
+robot_cfg = UNITREE_G1_29DOF_CFG.replace(prim_path="/World/Robot")
 robot = Articulation(robot_cfg)
 
 sim.reset()

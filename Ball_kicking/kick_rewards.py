@@ -7,7 +7,7 @@ from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
 
-from isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_swing
+from . import kick_swing
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv

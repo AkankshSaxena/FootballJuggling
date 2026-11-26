@@ -12,10 +12,10 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab_assets import G1_29DOF_CFG
 from isaaclab.sensors import ContactSensorCfg
 
-from isaaclab_tasks.manager_based.locomotion.velocity.mdp import (
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG
+from unitree_rl_lab.tasks.locomotion.mdp import (
     kick_events,
     kick_observations,
     kick_rewards,
@@ -45,7 +45,7 @@ class G1JuggleSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    robot: ArticulationCfg = G1_29DOF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = UNITREE_G1_29DOF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     robot.spawn.activate_contact_sensors = True
 
     ball: RigidObjectCfg = RigidObjectCfg(

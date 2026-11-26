@@ -9,7 +9,7 @@ from isaaclab.assets import Articulation
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 
-from isaaclab_tasks.manager_based.locomotion.velocity.mdp import kick_swing
+from . import kick_swing
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
